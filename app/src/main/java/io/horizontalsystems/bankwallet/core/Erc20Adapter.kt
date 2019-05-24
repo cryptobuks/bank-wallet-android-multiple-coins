@@ -1,53 +1,65 @@
 package io.horizontalsystems.bankwallet.core
 
+import android.content.Context
 import io.horizontalsystems.bankwallet.core.utils.AddressParser
 import io.horizontalsystems.bankwallet.entities.Coin
+import io.horizontalsystems.bankwallet.entities.TransactionAddress
 import io.horizontalsystems.bankwallet.entities.TransactionRecord
-import io.horizontalsystems.ethereumkit.EthereumKit
+import io.horizontalsystems.erc20kit.core.Erc20Kit
+import io.horizontalsystems.erc20kit.core.TransactionKey
+import io.horizontalsystems.erc20kit.models.TransactionInfo
+import io.horizontalsystems.ethereumkit.core.EthereumKit
+import io.horizontalsystems.ethereumkit.core.hexStringToByteArray
+import io.reactivex.Flowable
 import io.reactivex.Single
-import org.web3j.crypto.Keys
 import java.math.BigDecimal
 
-class Erc20Adapter(
-        coin: Coin,
-        kit: EthereumKit,
-        private val contractAddress: String,
-        decimal: Int,
-        addressParser: AddressParser) : EthereumBaseAdapter(coin, kit, decimal, addressParser) {
+class Erc20Adapter(context: Context,
+                   coin: Coin,
+                   kit: EthereumKit,
+                   decimal: Int,
+                   private val fee: BigDecimal,
+                   contractAddress: String,
+                   addressParser: AddressParser,
+                   feeRateProvider: IFeeRateProvider) : EthereumBaseAdapter(coin, kit, decimal, addressParser, feeRateProvider) {
 
-    init {
-        ethereumKit.register(contractAddress, this)
-    }
+    private val erc20Kit: Erc20Kit = Erc20Kit.getInstance(context, ethereumKit, contractAddress)
 
-    override val balanceString: String?
-        get() = ethereumKit.balanceERC20(contractAddress)
+    override val state: AdapterState
+        get() = when (erc20Kit.syncState) {
+            is Erc20Kit.SyncState.Synced -> AdapterState.Synced
+            is Erc20Kit.SyncState.NotSynced -> AdapterState.NotSynced
+            is Erc20Kit.SyncState.Syncing -> AdapterState.Syncing(50, null)
+        }
+
+    override val stateUpdatedFlowable: Flowable<Unit>
+        get() = erc20Kit.syncStateFlowable.map { Unit }
 
     override val balance: BigDecimal
-        get() = balanceInBigDecimal(balanceString, decimal)
+        get() = balanceInBigDecimal(erc20Kit.balance, decimal)
 
-    override val feeCoinCode: String? = "ETH"
+    override val balanceUpdatedFlowable: Flowable<Unit>
+        get() = erc20Kit.balanceFlowable.map { Unit }
 
-    override fun start() {}
-    override fun clear() {}
-
-    override fun stop() {
-        ethereumKit.unregister(contractAddress)
+    override fun getTransactions(from: Pair<String, Int>?, limit: Int): Single<List<TransactionRecord>> {
+        return erc20Kit.transactions(from?.let { TransactionKey(it.first.hexStringToByteArray(), it.second) }, limit).map {
+            it.map { tx -> transactionRecord(tx) }
+        }
     }
 
-    override fun refresh() {
-        ethereumKit.start()
-    }
+    override val transactionRecordsFlowable: Flowable<List<TransactionRecord>>
+        get() = erc20Kit.transactionsFlowable.map { it.map { tx -> transactionRecord(tx) } }
 
-    override fun sendSingle(address: String, amount: String, feePriority: FeeRatePriority): Single<Unit> {
-        return ethereumKit.sendERC20(address, contractAddress, amount, getKitFeePriority(feePriority)).map { Unit }
-    }
-
-    override fun fee(value: BigDecimal, address: String?, feePriority: FeeRatePriority): BigDecimal {
-        return ethereumKit.feeERC20(getKitFeePriority(feePriority))
+    override fun sendSingle(address: String, amount: String, gasPrice: Long): Single<Unit> {
+        return erc20Kit.send(address, amount, gasPrice).map { Unit }
     }
 
     override fun availableBalance(address: String?, feePriority: FeeRatePriority): BigDecimal {
-        return balance
+        return balance - fee
+    }
+
+    override fun fee(value: BigDecimal, address: String?, feePriority: FeeRatePriority): BigDecimal {
+        return erc20Kit.fee(feeRateProvider.ethereumGasPrice(feePriority)).movePointLeft(18)
     }
 
     override fun validate(amount: BigDecimal, address: String?, feePriority: FeeRatePriority): List<SendStateError> {
@@ -61,22 +73,41 @@ class Erc20Adapter(
         return errors
     }
 
-    override fun getTransactionsObservable(hashFrom: String?, limit: Int): Single<List<TransactionRecord>> {
-        return ethereumKit.transactionsERC20(contractAddress, hashFrom, limit).map {
-            it.map { tx -> transactionRecord(tx) }
-        }
+    override fun stop() {
+        erc20Kit.stop()
     }
 
-    override fun onSyncStateUpdate() {
-        val newState = convertState(ethereumKit.syncStateErc20(contractAddress))
-        if (state != newState) {
-            state = newState
+    private fun transactionRecord(transaction: TransactionInfo): TransactionRecord {
+        val mineAddress = ethereumKit.receiveAddress
+
+        val from = TransactionAddress(transaction.from, transaction.from == mineAddress)
+        val to = TransactionAddress(transaction.to, transaction.to == mineAddress)
+
+        var amount: BigDecimal
+
+        transaction.value.toBigDecimal().let {
+            amount = it.movePointLeft(decimal)
+            if (from.mine) {
+                amount = -amount
+            }
         }
+
+        return TransactionRecord(
+                transactionHash = transaction.transactionHash,
+                transactionIndex = transaction.transactionIndex ?: 0,
+                interTransactionIndex = transaction.interTransactionIndex,
+                blockHeight = transaction.blockNumber,
+                amount = amount,
+                timestamp = transaction.timestamp,
+                from = listOf(from),
+                to = listOf(to)
+        )
     }
 
     companion object {
-        fun adapter(coin: Coin, ethereumKit: EthereumKit, contractAddress: String, decimal: Int, addressParser: AddressParser): Erc20Adapter {
-            return Erc20Adapter(coin, ethereumKit, Keys.toChecksumAddress(contractAddress), decimal, addressParser)
+        fun clear(context: Context) {
+            Erc20Kit.clear(context)
         }
     }
+
 }

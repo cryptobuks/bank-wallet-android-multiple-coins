@@ -8,6 +8,7 @@ import io.horizontalsystems.bankwallet.core.managers.RateManager
 import io.horizontalsystems.bankwallet.entities.Coin
 import io.horizontalsystems.bankwallet.entities.TransactionRecord
 import io.reactivex.Single
+import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.disposables.CompositeDisposable
 import io.reactivex.schedulers.Schedulers
 import java.util.concurrent.TimeUnit
@@ -72,7 +73,7 @@ class TransactionsInteractor(
             val flowable = when (adapter) {
                 null -> Single.just(Pair(fetchData.coin, listOf()))
                 else -> {
-                    adapter.getTransactionsObservable(fetchData.hashFrom, fetchData.limit)
+                    adapter.getTransactions(fetchData.from, fetchData.limit)
                             .map {
                                 Pair(fetchData.coin, it)
                             }
@@ -106,7 +107,7 @@ class TransactionsInteractor(
         lastBlockHeightDisposables.clear()
 
         adapterManager.adapters.forEach { adapter ->
-            adapter.lastBlockHeightUpdatedSignal
+            adapter.lastBlockHeightUpdatedFlowable
                     .throttleLast(3, TimeUnit.SECONDS)
                     .subscribeOn(Schedulers.io())
                     .observeOn(Schedulers.io())
@@ -126,7 +127,7 @@ class TransactionsInteractor(
 
         rateManager.rateValueObservable(coin.code, currencyCode, timestamp)
                 .subscribeOn(Schedulers.io())
-                .observeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
                 .subscribe({
                     delegate?.didFetchRate(it, coin, baseCurrency, timestamp)
                 }, {
@@ -154,7 +155,7 @@ class TransactionsInteractor(
         delegate?.onUpdateCoinsData(adapterManager.adapters.map { Triple(it.coin, it.confirmationsThreshold, it.lastBlockHeight) })
 
         adapterManager.adapters.forEach { adapter ->
-            adapter.transactionRecordsSubject
+            adapter.transactionRecordsFlowable
                     .subscribeOn(Schedulers.io())
                     .observeOn(Schedulers.io())
                     .subscribe {

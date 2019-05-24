@@ -1,10 +1,10 @@
 package io.horizontalsystems.bankwallet.modules.backup
 
-import android.arch.lifecycle.Observer
-import android.arch.lifecycle.ViewModelProviders
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import androidx.lifecycle.Observer
+import androidx.lifecycle.ViewModelProviders
 import io.horizontalsystems.bankwallet.BaseActivity
 import io.horizontalsystems.bankwallet.R
 import io.horizontalsystems.bankwallet.core.setOnSingleClickListener
@@ -18,8 +18,6 @@ class BackupActivity : BaseActivity(), BottomConfirmAlert.Listener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        setTransparentStatusBar()
 
         setContentView(R.layout.activity_backup_words)
 

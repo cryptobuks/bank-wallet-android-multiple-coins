@@ -2,11 +2,13 @@ package io.horizontalsystems.bankwallet.modules.send
 
 import io.horizontalsystems.bankwallet.core.*
 import io.horizontalsystems.bankwallet.entities.*
+import io.reactivex.Flowable
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.disposables.CompositeDisposable
 import io.reactivex.schedulers.Schedulers
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.util.concurrent.TimeUnit
 
 class SendInteractor(private val currencyManager: ICurrencyManager,
                      private val rateStorage: IRateStorage,
@@ -42,6 +44,8 @@ class SendInteractor(private val currencyManager: ICurrencyManager,
     private val disposables = CompositeDisposable()
 
     override fun retrieveRate() {
+        disposables.clear()
+
         disposables.add(
                 rateStorage.latestRateObservable(adapter.coin.code, currencyManager.baseCurrency.code)
                         .take(1)
@@ -49,13 +53,11 @@ class SendInteractor(private val currencyManager: ICurrencyManager,
                         .observeOn(AndroidSchedulers.mainThread())
                         .subscribe {
                             exchangeRate = if (it.expired) null else it
-                            if (exchangeRate != null) {
-                                delegate?.didRateRetrieve()
-                            }
+                            delegate?.didRateRetrieve(exchangeRate)
                         }
         )
 
-        adapter.feeCoinCode?.let{
+        adapter.feeCoinCode?.let {
             disposables.add(
                     rateStorage.latestRateObservable(it, currencyManager.baseCurrency.code)
                             .take(1)
@@ -69,6 +71,18 @@ class SendInteractor(private val currencyManager: ICurrencyManager,
                             }
             )
         }
+
+        disposables.add(
+                Flowable.interval(1, TimeUnit.MINUTES)
+                        .subscribeOn(Schedulers.io())
+                        .observeOn(AndroidSchedulers.mainThread())
+                        .subscribe {
+                            if (exchangeRate?.expired == true) {
+                                exchangeRate = null
+                                delegate?.didRateRetrieve(exchangeRate)
+                            }
+                        }
+        )
     }
 
     override fun parsePaymentAddress(address: String): PaymentRequestAddress {
@@ -128,7 +142,8 @@ class SendInteractor(private val currencyManager: ICurrencyManager,
             }
         }
 
-        val errors = adapter.validate(state.coinValue?.value ?: BigDecimal.ZERO, address, input.feePriority)
+        val errors = adapter.validate(state.coinValue?.value
+                ?: BigDecimal.ZERO, address, input.feePriority)
 
         for (error in errors) {
             when (error) {
@@ -149,7 +164,7 @@ class SendInteractor(private val currencyManager: ICurrencyManager,
         var feeCurrencyRate: BigDecimal? = null
         adapter.feeCoinCode?.let {
             feeCurrencyRate = exchangeFeeRate?.value
-        } ?:run {
+        } ?: run {
             feeCurrencyRate = rateValue
         }
 
@@ -206,12 +221,17 @@ class SendInteractor(private val currencyManager: ICurrencyManager,
             return
         }
 
-        adapter.send(address, computedAmount, userInput.feePriority) { error ->
-            when (error) {
-                null -> delegate?.didSend()
-                else -> delegate?.didFailToSend(error)
-            }
-        }
+        adapter.send(address, computedAmount, userInput.feePriority)
+                .subscribeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(
+                        { delegate?.didSend() },
+                        { error ->
+                            delegate?.didFailToSend(error)
+                        })
+                .let {
+                    disposables.add(it)
+                }
     }
 
     override fun clear() {

@@ -7,7 +7,7 @@ import io.horizontalsystems.bankwallet.core.INetworkManager
 import io.horizontalsystems.bankwallet.entities.LatestRateData
 import io.horizontalsystems.bankwallet.viewHelpers.DateHelper
 import io.reactivex.Flowable
-import io.reactivex.Maybe
+import io.reactivex.Single
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -20,26 +20,28 @@ import retrofit2.http.Url
 import java.math.BigDecimal
 import java.util.concurrent.TimeUnit
 
-class NetworkManager(private val appConfig: IAppConfigProvider) : INetworkManager {
+class NetworkManager(val appConfigProvider: IAppConfigProvider) : INetworkManager {
 
-    override fun getRate(coinCode: String, currency: String, timestamp: Long): Maybe<BigDecimal> {
-        val apiService = ServiceExchangeApi.service(appConfig.ipfsUrl)
+    override fun getRateByDay(hostType: ServiceExchangeApi.HostType, coinCode: String, currency: String, timestamp: Long): Single<BigDecimal> {
+        return historicalRateApiClient(hostType)
+                .getRateByDay(coinCode, currency, DateHelper.formatDateInUTC(timestamp, "yyyy/MM/dd"))
+                .map { it.toBigDecimal() }
+    }
 
-        val hourFlowable = apiService.getRateByHour(coinCode, currency, DateHelper.formatDateInUTC(timestamp, "yyyy/MM/dd/HH"))
-        val dayFlowable = apiService.getRateByDay(coinCode, currency, DateHelper.formatDateInUTC(timestamp, "yyyy/MM/dd"))
-
-        return hourFlowable
+    override fun getRateByHour(hostType: ServiceExchangeApi.HostType, coinCode: String, currency: String, timestamp: Long): Single<BigDecimal> {
+        return historicalRateApiClient(hostType)
+                .getRateByHour(coinCode, currency, DateHelper.formatDateInUTC(timestamp, "yyyy/MM/dd/HH"))
                 .flatMap { minuteRates ->
-                    Maybe.just(minuteRates.getValue(DateHelper.formatDateInUTC(timestamp, "mm")).toBigDecimal())
+                    Single.just(minuteRates.getValue(DateHelper.formatDateInUTC(timestamp, "mm")).toBigDecimal())
                 }
-                .onErrorResumeNext(dayFlowable.map { it.toBigDecimal() })
     }
 
-    override fun getLatestRateData(currency: String): Flowable<LatestRateData> {
-        return ServiceExchangeApi.service(appConfig.ipfsUrl)
+    override fun getLatestRateData(hostType: ServiceExchangeApi.HostType, currency: String): Single<LatestRateData> {
+        return latestRateApiClient(hostType)
                 .getLatestRate(currency)
-                .onErrorResumeNext(Flowable.empty())
+                .map { LatestRateData(it.rates, it.currency, it.timestamp / 1000) }
     }
+
 
     override fun getTransaction(host: String, path: String): Flowable<JsonObject> {
         return ServiceFullTransaction.service(host)
@@ -50,13 +52,42 @@ class NetworkManager(private val appConfig: IAppConfigProvider) : INetworkManage
         return ServicePing.service(host)
                 .ping(url)
     }
+
+    private val latestRateMainClient: ServiceExchangeApi.IExchangeRate = APIClient
+            .retrofit("https://${appConfigProvider.ipfsMainGateway}/ipns/${appConfigProvider.ipfsId}/", timeout = 10)
+            .create(ServiceExchangeApi.IExchangeRate::class.java)
+
+    private val latestRateFallbackClient: ServiceExchangeApi.IExchangeRate = APIClient
+            .retrofit("https://${appConfigProvider.ipfsFallbackGateway}/ipns/${appConfigProvider.ipfsId}/")
+            .create(ServiceExchangeApi.IExchangeRate::class.java)
+
+    private val historicalRateMainClient: ServiceExchangeApi.IExchangeRate = APIClient
+            .retrofit("https://${appConfigProvider.ipfsMainGateway}/ipns/${appConfigProvider.ipfsId}/", timeout = 5)
+            .create(ServiceExchangeApi.IExchangeRate::class.java)
+
+    private val historicalRateFallbackClient: ServiceExchangeApi.IExchangeRate = APIClient
+            .retrofit("https://${appConfigProvider.ipfsFallbackGateway}/ipns/${appConfigProvider.ipfsId}/")
+            .create(ServiceExchangeApi.IExchangeRate::class.java)
+
+    private fun latestRateApiClient(hostType: ServiceExchangeApi.HostType): ServiceExchangeApi.IExchangeRate {
+        return when(hostType) {
+            ServiceExchangeApi.HostType.MAIN -> latestRateMainClient
+            else -> latestRateFallbackClient
+        }
+    }
+
+    private fun historicalRateApiClient(hostType: ServiceExchangeApi.HostType): ServiceExchangeApi.IExchangeRate {
+        return when(hostType) {
+            ServiceExchangeApi.HostType.MAIN -> historicalRateMainClient
+            else -> historicalRateFallbackClient
+        }
+    }
 }
 
 object ServiceExchangeApi {
 
-    fun service(apiURL: String): IExchangeRate {
-        return APIClient.retrofit(apiURL)
-                .create(IExchangeRate::class.java)
+    enum class HostType {
+        MAIN, FALLBACK
     }
 
     interface IExchangeRate {
@@ -66,19 +97,19 @@ object ServiceExchangeApi {
                 @Path("coin") coinCode: String,
                 @Path("fiat") currency: String,
                 @Path("datePath") datePath: String
-        ): Maybe<String>
+        ): Single<String>
 
         @GET("xrates/historical/{coin}/{fiat}/{datePath}/index.json")
         fun getRateByHour(
                 @Path("coin") coinCode: String,
                 @Path("fiat") currency: String,
                 @Path("datePath") datePath: String
-        ): Maybe<Map<String, String>>
+        ): Single<Map<String, String>>
 
         @GET("xrates/latest/{fiat}/index.json")
         fun getLatestRate(
                 @Path("fiat") currency: String
-        ): Flowable<LatestRateData>
+        ): Single<LatestRateData>
 
     }
 }
@@ -110,7 +141,7 @@ object ServicePing {
 }
 
 object APIClient {
-    fun retrofit(apiURL: String, timeout: Long = 60): Retrofit {
+    fun retrofit(apiURL: String, timeout: Long = 30): Retrofit {
 
         val logger = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BASIC

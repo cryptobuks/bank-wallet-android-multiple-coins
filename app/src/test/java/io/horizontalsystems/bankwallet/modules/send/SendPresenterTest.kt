@@ -7,6 +7,7 @@ import io.horizontalsystems.bankwallet.R
 import io.horizontalsystems.bankwallet.core.FeeRatePriority
 import io.horizontalsystems.bankwallet.entities.Coin
 import io.horizontalsystems.bankwallet.entities.PaymentRequestAddress
+import io.horizontalsystems.bankwallet.entities.Rate
 import org.junit.Assert
 import org.junit.Before
 import org.junit.Test
@@ -25,6 +26,7 @@ class SendPresenterTest {
     private val state = SendModule.State(2, SendModule.InputType.COIN)
     private val viewItem = SendModule.StateViewItem(8)
     private val viewItemConfirm = mock(SendModule.SendConfirmationViewItem::class.java)
+    private val rate = Rate("BTC", "USD", 6023.toBigDecimal(), 1555999512, true)
 
     private lateinit var presenter: SendPresenter
 
@@ -61,7 +63,11 @@ class SendPresenterTest {
         verify(view).setFeeInfo(viewItem.feeInfo)
         verify(view).setSendButtonEnabled(viewItem.sendButtonEnabled)
         verify(view).setPasteButtonState(true)
+    }
 
+    @Test
+    fun onViewResumed() {
+        presenter.onViewResumed()
         verify(interactor).retrieveRate()
     }
 
@@ -124,11 +130,21 @@ class SendPresenterTest {
 
     @Test
     fun didRateRetrieve() {
-        presenter.didRateRetrieve()
+        presenter.didRateRetrieve(rate)
 
         verify(view).setSwitchButtonEnabled(viewItem.switchButtonEnabled)
         verify(view).setHintInfo(viewItem.hintInfo)
         verify(view).setFeeInfo(viewItem.feeInfo)
+    }
+
+    @Test
+    fun didRateRetrieve_withExpiredRate() {
+        whenever(userInput.inputType).thenReturn(SendModule.InputType.CURRENCY)
+
+        presenter.didRateRetrieve(null)
+
+        verify(userInput).amount = BigDecimal.ZERO
+        verify(userInput).inputType = SendModule.InputType.COIN
     }
 
     @Test
@@ -138,7 +154,7 @@ class SendPresenterTest {
         whenever(userInput.amount).thenReturn(BigDecimal.ZERO)
         whenever(interactor.defaultInputType).thenReturn(inputType)
 
-        presenter.didRateRetrieve()
+        presenter.didRateRetrieve(rate)
         verify(userInput).inputType = SendModule.InputType.CURRENCY
     }
 

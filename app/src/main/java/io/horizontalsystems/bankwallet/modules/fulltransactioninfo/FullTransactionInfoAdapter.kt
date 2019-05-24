@@ -7,7 +7,7 @@ import io.horizontalsystems.bankwallet.entities.*
 import io.horizontalsystems.bankwallet.viewHelpers.DateHelper
 import java.math.BigInteger
 
-class FullTransactionBitcoinAdapter(val provider: FullTransactionInfoModule.BitcoinForksProvider, val coin: Coin)
+class FullTransactionBitcoinAdapter(val provider: FullTransactionInfoModule.BitcoinForksProvider, val coin: Coin, val unitName: String)
     : FullTransactionInfoModule.Adapter {
 
     override fun convert(json: JsonObject): FullTransactionRecord {
@@ -32,7 +32,7 @@ class FullTransactionBitcoinAdapter(val provider: FullTransactionInfoModule.Bitc
         }
 
         data.feePerByte?.let { feePerByte ->
-            transactionItems.add(FullTransactionItem(R.string.FullInfo_Rate, value = "${App.numberFormatter.format(feePerByte)} (satoshi)", dimmed = true))
+            transactionItems.add(FullTransactionItem(R.string.FullInfo_Rate, value = "${App.numberFormatter.format(feePerByte)} ($unitName)", dimmed = true))
         }
 
         sections.add(FullTransactionSection(items = transactionItems))
@@ -88,7 +88,10 @@ class FullTransactionEthereumAdapter(val provider: FullTransactionInfoModule.Eth
             }
 
             section.add(FullTransactionItem(R.string.FullInfoEth_Amount, value = "${App.numberFormatter.format(amount)} ${coin.code}"))
-            section.add(FullTransactionItem(R.string.FullInfoEth_Nonce, value = data.nonce, dimmed = true))
+
+            data.nonce?.let {
+                section.add(FullTransactionItem(R.string.FullInfoEth_Nonce, value = it, dimmed = true))
+            }
 
             sections.add(FullTransactionSection(section))
         }
@@ -104,7 +107,9 @@ class FullTransactionEthereumAdapter(val provider: FullTransactionInfoModule.Eth
             data.gasUsed?.let {
                 section.add(FullTransactionItem(R.string.FullInfo_GasUsed, value = data.gasUsed, dimmed = true))
             }
-            section.add(FullTransactionItem(R.string.FullInfo_GasPrice, value = "${data.gasPrice} GWei", dimmed = true))
+            data.gasPrice?.let {
+                section.add(FullTransactionItem(R.string.FullInfo_GasPrice, value = "$it GWei", dimmed = true))
+            }
 
             sections.add(FullTransactionSection(section))
         }

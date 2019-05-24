@@ -1,7 +1,7 @@
 package io.horizontalsystems.bankwallet.modules.send
 
-import android.arch.lifecycle.MutableLiveData
-import android.arch.lifecycle.ViewModel
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.ViewModel
 import io.horizontalsystems.bankwallet.SingleLiveEvent
 import io.horizontalsystems.bankwallet.entities.Coin
 
@@ -15,6 +15,7 @@ class SendViewModel : ViewModel(), SendModule.IView {
     val amountInfoLiveData = MutableLiveData<SendModule.AmountInfo>()
     val switchButtonEnabledLiveData = MutableLiveData<Boolean>()
     val addressInfoLiveData = MutableLiveData<SendModule.AddressInfo>()
+    val dismissLiveEvent = SingleLiveEvent<Unit>()
     val dismissWithSuccessLiveEvent = SingleLiveEvent<Unit>()
     val dismissConfirmationLiveEvent = SingleLiveEvent<Unit>()
     val feeInfoLiveData = MutableLiveData<SendModule.FeeInfo>()
@@ -24,6 +25,8 @@ class SendViewModel : ViewModel(), SendModule.IView {
     val pasteButtonEnabledLiveData = MutableLiveData<Boolean>()
     val feeIsAdjustableLiveData = MutableLiveData<Boolean>()
     var decimalSize: Int? = null
+
+    private var moduleInited = false
 
     fun init(coin: String) {
         hintInfoLiveData.value = null
@@ -39,6 +42,7 @@ class SendViewModel : ViewModel(), SendModule.IView {
         SendModule.init(this, coin)
         delegate.onViewDidLoad()
         feeIsAdjustableLiveData.value = delegate.feeAdjustable
+        moduleInited = true
     }
 
     override fun setPasteButtonState(enabled: Boolean) {
@@ -91,8 +95,20 @@ class SendViewModel : ViewModel(), SendModule.IView {
         dismissConfirmationLiveEvent.call()
     }
 
+    override fun dismiss() {
+        dismissLiveEvent.call()
+    }
+
     override fun onCleared() {
-        delegate.onClear()
+        if (moduleInited) {
+            delegate.onClear()
+        }
+    }
+
+    fun onViewResumed() {
+        if (moduleInited) {
+            delegate.onViewResumed()
+        }
     }
 
 }

@@ -1,12 +1,8 @@
 package io.horizontalsystems.bankwallet.modules.send
 
-import android.support.v4.app.FragmentActivity
 import io.horizontalsystems.bankwallet.core.App
 import io.horizontalsystems.bankwallet.core.FeeRatePriority
-import io.horizontalsystems.bankwallet.entities.Coin
-import io.horizontalsystems.bankwallet.entities.CoinValue
-import io.horizontalsystems.bankwallet.entities.CurrencyValue
-import io.horizontalsystems.bankwallet.entities.PaymentRequestAddress
+import io.horizontalsystems.bankwallet.entities.*
 import io.horizontalsystems.bankwallet.viewHelpers.TextHelper
 import java.math.BigDecimal
 
@@ -28,6 +24,7 @@ object SendModule {
         fun showConfirmation(viewItem: SendConfirmationViewItem)
         fun showError(error: Int)
         fun dismissWithSuccess()
+        fun dismiss()
         fun setPasteButtonState(enabled: Boolean)
         fun setDecimal(decimal: Int)
 
@@ -36,6 +33,7 @@ object SendModule {
     interface IViewDelegate {
         val feeAdjustable: Boolean
         fun onViewDidLoad()
+        fun onViewResumed()
         fun onAmountChanged(amount: BigDecimal)
         fun onSwitchClicked()
         fun onPasteClicked()
@@ -51,7 +49,7 @@ object SendModule {
     interface IInteractor {
         val coin: Coin
         val clipboardHasPrimaryClip: Boolean
-        var defaultInputType: SendModule.InputType
+        var defaultInputType: InputType
         val addressFromClipboard: String?
 
         fun retrieveRate()
@@ -65,7 +63,7 @@ object SendModule {
     }
 
     interface IInteractorDelegate {
-        fun didRateRetrieve()
+        fun didRateRetrieve(rate: Rate?)
         fun didFeeRateRetrieve()
         fun didSend()
         fun didFailToSend(error: Throwable)
@@ -80,10 +78,6 @@ object SendModule {
         view.delegate = presenter
         presenter.view = view
         interactor.delegate = presenter
-    }
-
-    fun start(activity: FragmentActivity, coin: String) {
-        SendBottomSheetFragment.show(activity, coin)
     }
 
     enum class InputType {
@@ -114,11 +108,11 @@ object SendModule {
         data class CurrencyValueInfo(val currencyValue: CurrencyValue) : AmountInfo()
 
         fun getFormatted(): String? = when (this) {
-            is SendModule.AmountInfo.CoinValueInfo -> {
+            is CoinValueInfo -> {
                 App.numberFormatter.format(this.coinValue)
             }
-            is SendModule.AmountInfo.CurrencyValueInfo -> {
-                App.numberFormatter.format(this.currencyValue)
+            is CurrencyValueInfo -> {
+                App.numberFormatter.format(this.currencyValue, trimmable = true)
             }
         }
     }
