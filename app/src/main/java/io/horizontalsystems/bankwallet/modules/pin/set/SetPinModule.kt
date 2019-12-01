@@ -1,24 +1,31 @@
 package io.horizontalsystems.bankwallet.modules.pin.set
 
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import io.horizontalsystems.bankwallet.core.App
-import io.horizontalsystems.bankwallet.core.IKeyStoreSafeExecute
 import io.horizontalsystems.bankwallet.modules.pin.PinInteractor
-import io.horizontalsystems.bankwallet.modules.pin.PinViewModel
+import io.horizontalsystems.bankwallet.modules.pin.PinView
 
 object SetPinModule {
 
-    interface ISetPinRouter {
+    interface IRouter {
         fun navigateToMain()
+        fun dismissModuleWithSuccess()
     }
 
-    fun init(view: PinViewModel, router: ISetPinRouter, keystoreSafeExecute: IKeyStoreSafeExecute) {
+    class Factory : ViewModelProvider.Factory {
 
-        val interactor = PinInteractor(App.pinManager, App.authManager, keystoreSafeExecute)
-        val presenter = SetPinPresenter(interactor, router)
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            val view = PinView()
+            val router = SetPinRouter()
 
-        view.delegate = presenter
-        presenter.view = view
-        interactor.delegate = presenter
+            val interactor = PinInteractor(App.pinManager)
+            val presenter = SetPinPresenter(view, router, interactor)
+
+            interactor.delegate = presenter
+
+            return presenter as T
+        }
     }
 
 }

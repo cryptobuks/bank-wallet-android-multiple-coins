@@ -1,27 +1,38 @@
 package io.horizontalsystems.bankwallet.modules.settings.main
 
-import io.horizontalsystems.bankwallet.R
+import androidx.lifecycle.ViewModel
+import io.horizontalsystems.bankwallet.modules.settings.main.MainSettingsModule.IMainSettingsInteractor
+import io.horizontalsystems.bankwallet.modules.settings.main.MainSettingsModule.IMainSettingsInteractorDelegate
+import io.horizontalsystems.bankwallet.modules.settings.main.MainSettingsModule.IMainSettingsRouter
+import io.horizontalsystems.bankwallet.modules.settings.main.MainSettingsModule.IMainSettingsView
+import io.horizontalsystems.bankwallet.modules.settings.main.MainSettingsModule.IMainSettingsViewDelegate
 
 class MainSettingsPresenter(
-        private val router: MainSettingsModule.IMainSettingsRouter,
-        private val interactor: MainSettingsModule.IMainSettingsInteractor)
-    : MainSettingsModule.IMainSettingsViewDelegate, MainSettingsModule.IMainSettingsInteractorDelegate {
+        val view: IMainSettingsView,
+        val router: IMainSettingsRouter,
+        private val interactor: IMainSettingsInteractor)
+    : ViewModel(), IMainSettingsViewDelegate, IMainSettingsInteractorDelegate {
 
-    var view: MainSettingsModule.IMainSettingsView? = null
+    private val helper = MainSettingsHelper()
 
     override fun viewDidLoad() {
-        view?.setTitle(R.string.Settings_Title)
-        view?.setBackedUp(interactor.isBackedUp)
-        view?.setBaseCurrency(interactor.baseCurrency)
-        view?.setLanguage(interactor.currentLanguage)
-        view?.setLightMode(interactor.getLightMode())
-        view?.setAppVersion(interactor.appVersion)
-
-        view?.setTabItemBadge(if (interactor.isBackedUp) 0 else 1)
+        view.setBackedUp(interactor.allBackedUp)
+        view.setBaseCurrency(helper.displayName(interactor.baseCurrency))
+        view.setLanguage(interactor.currentLanguageDisplayName)
+        view.setLightMode(interactor.lightMode)
+        view.setAppVersion(interactor.appVersion)
     }
 
     override fun didTapSecurity() {
         router.showSecuritySettings()
+    }
+
+    override fun didManageCoins() {
+        router.showManageCoins()
+    }
+
+    override fun didTapExperimentalFeatures() {
+        router.showExperimentalFeatures()
     }
 
     override fun didTapBaseCurrency() {
@@ -33,31 +44,43 @@ class MainSettingsPresenter(
     }
 
     override fun didSwitchLightMode(lightMode: Boolean) {
-        interactor.setLightMode(lightMode)
+        interactor.lightMode = lightMode
+        router.reloadAppInterface()
     }
 
     override fun didTapAbout() {
         router.showAbout()
     }
 
-    override fun didTapAppLink() {
-        router.openAppLink()
+    override fun didTapCompanyLogo() {
+        router.openLink(interactor.companyWebPageLink)
     }
 
-    override fun didBackup() {
-        view?.setBackedUp(true)
-        view?.setTabItemBadge(0)
+    override fun didTapReportProblem() {
+        router.showReportProblem()
     }
 
-    override fun didUpdateBaseCurrency(baseCurrency: String) {
-        view?.setBaseCurrency(baseCurrency)
+    override fun didTapTellFriends() {
+        router.showShareApp(interactor.appWebPageLink)
     }
 
-    override fun didUpdateLightMode() {
-        router.reloadAppInterface()
+    override fun didTapNotifications() {
+        router.showNotifications()
     }
 
-    override fun onClear() {
+    // IMainSettingsInteractorDelegate
+
+    override fun didUpdateAllBackedUp(allBackedUp: Boolean) {
+        view.setBackedUp(allBackedUp)
+    }
+
+    override fun didUpdateBaseCurrency() {
+        view.setBaseCurrency(helper.displayName(interactor.baseCurrency))
+    }
+
+    // ViewModel
+
+    override fun onCleared() {
         interactor.clear()
     }
 

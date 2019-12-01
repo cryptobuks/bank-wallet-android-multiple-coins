@@ -1,37 +1,33 @@
 package io.horizontalsystems.bankwallet.core.managers
 
+import android.app.Activity
 import android.app.KeyguardManager
-import android.content.Context
-import androidx.core.hardware.fingerprint.FingerprintManagerCompat
+import android.os.Build
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
 import io.horizontalsystems.bankwallet.BuildConfig
 import io.horizontalsystems.bankwallet.core.App
 import io.horizontalsystems.bankwallet.core.ISystemInfoManager
-import io.horizontalsystems.bankwallet.entities.BiometryType
 
-class SystemInfoManager: ISystemInfoManager {
-    override var appVersion: String = BuildConfig.VERSION_NAME
+class SystemInfoManager : ISystemInfoManager {
 
-    override var biometryType: BiometryType = BiometryType.NONE
+    override val appVersion: String = BuildConfig.VERSION_NAME
+
+    private val biometricManager = BiometricManager.from(App.instance)
+
+    override val isSystemLockOff: Boolean
         get() {
-            return when {
-                phoneHasFingerprintSensor() -> BiometryType.FINGER
-                else -> BiometryType.NONE
-            }
+            val keyguardManager = App.instance.getSystemService(Activity.KEYGUARD_SERVICE) as KeyguardManager
+            return !keyguardManager.isDeviceSecure
         }
 
-    override fun phoneHasFingerprintSensor(): Boolean {
-        val fingerprintManager = FingerprintManagerCompat.from(App.instance)
-        return fingerprintManager.isHardwareDetected
-    }
+    override val biometricAuthSupported: Boolean
+        get() = biometricManager.canAuthenticate() == BIOMETRIC_SUCCESS
 
-    override fun touchSensorCanBeUsed(): Boolean {
-        val fingerprintManager = FingerprintManagerCompat.from(App.instance)
-        return when {
-            fingerprintManager.isHardwareDetected -> {
-                val keyguardManager = App.instance.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-                keyguardManager.isKeyguardSecure && fingerprintManager.hasEnrolledFingerprints()
-            }
-            else -> false
-        }
-    }
+    override val deviceModel: String
+        get() = "${Build.MANUFACTURER} ${Build.MODEL}"
+
+    override val osVersion: String
+        get() = "Android ${Build.VERSION.RELEASE} (${Build.VERSION.SDK_INT})"
+
 }

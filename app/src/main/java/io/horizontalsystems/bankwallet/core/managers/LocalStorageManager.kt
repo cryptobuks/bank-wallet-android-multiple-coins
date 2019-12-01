@@ -1,11 +1,17 @@
 package io.horizontalsystems.bankwallet.core.managers
 
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import io.horizontalsystems.bankwallet.core.App
+import io.horizontalsystems.bankwallet.core.IChartTypeStorage
 import io.horizontalsystems.bankwallet.core.ILocalStorage
+import io.horizontalsystems.bankwallet.entities.AppVersion
+import io.horizontalsystems.bankwallet.entities.SyncMode
+import io.horizontalsystems.bankwallet.modules.balance.BalanceSortType
 import io.horizontalsystems.bankwallet.modules.send.SendModule
+import io.horizontalsystems.xrateskit.entities.ChartType
 
-
-class LocalStorageManager : ILocalStorage {
+class LocalStorageManager : ILocalStorage, IChartTypeStorage {
 
     private val CURRENT_LANGUAGE = "current_language"
     private val LIGHT_MODE_ENABLED = "light_mode_enabled"
@@ -15,12 +21,21 @@ class LocalStorageManager : ILocalStorage {
     private val I_UNDERSTAND = "i_understand"
     private val BLOCK_TILL_DATE = "unblock_date"
     private val BASE_CURRENCY_CODE = "base_currency_code"
-    private val NEW_WALLET = "new_wallet"
     private val FAILED_ATTEMPTS = "failed_attempts"
     private val LOCKOUT_TIMESTAMP = "lockout_timestamp"
     private val BASE_BITCOIN_PROVIDER = "base_bitcoin_provider"
     private val BASE_ETHEREUM_PROVIDER = "base_ethereum_provider"
     private val BASE_DASH_PROVIDER = "base_dash_provider"
+    private val BASE_BINANCE_PROVIDER = "base_binance_provider"
+    private val BASE_EOS_PROVIDER = "base_eos_provider"
+    private val SYNC_MODE = "sync_mode"
+    private val SORT_TYPE = "balance_sort_type"
+    private val CHART_TYPE = "prev_chart_type"
+    private val APP_VERSIONS = "app_versions"
+    private val ALERT_NOTIFICATION_ENABLED = "alert_notification"
+    private val LOCK_TIME_ENABLED = "lock_time_enabled"
+
+    private val gson = Gson()
 
     override var currentLanguage: String?
         get() = App.preferences.getString(CURRENT_LANGUAGE, null)
@@ -34,7 +49,7 @@ class LocalStorageManager : ILocalStorage {
             App.preferences.edit().putBoolean(WORDLIST_BACKUP, backedUp).apply()
         }
 
-    override var isBiometricOn: Boolean
+    override var isFingerprintEnabled: Boolean
         get() = App.preferences.getBoolean(FINGERPRINT_ENABLED, false)
         set(enabled) {
             App.preferences.edit().putBoolean(FINGERPRINT_ENABLED, enabled).apply()
@@ -87,12 +102,6 @@ class LocalStorageManager : ILocalStorage {
             }
         }
 
-    override var isNewWallet: Boolean
-        get() = App.preferences.getBoolean(NEW_WALLET, false)
-        set(value) {
-            App.preferences.edit().putBoolean(NEW_WALLET, value).apply()
-        }
-
     override var failedAttempts: Int?
         get() {
             val attempts = App.preferences.getInt(FAILED_ATTEMPTS, 0)
@@ -139,8 +148,71 @@ class LocalStorageManager : ILocalStorage {
             App.preferences.edit().putString(BASE_DASH_PROVIDER, value).apply()
         }
 
+    override var baseBinanceProvider: String?
+        get() = App.preferences.getString(BASE_BINANCE_PROVIDER, null)
+        set(value) {
+            App.preferences.edit().putString(BASE_BINANCE_PROVIDER, value).apply()
+        }
+
+    override var baseEosProvider: String?
+        get() = App.preferences.getString(BASE_EOS_PROVIDER, null)
+        set(value) {
+            App.preferences.edit().putString(BASE_EOS_PROVIDER, value).apply()
+        }
+
+    override var syncMode: SyncMode
+        get() {
+            val syncString = App.preferences.getString(SYNC_MODE, SyncMode.FAST.value)
+            return syncString?.let { SyncMode.fromString(syncString) } ?: SyncMode.FAST
+        }
+        set(syncMode) {
+            App.preferences.edit().putString(SYNC_MODE, syncMode.value).apply()
+        }
+
+    override var sortType: BalanceSortType
+        get() {
+            val sortString = App.preferences.getString(SORT_TYPE, null)
+                    ?: BalanceSortType.Name.getAsString()
+            return BalanceSortType.getTypeFromString(sortString)
+        }
+        set(sortType) {
+            App.preferences.edit().putString(SORT_TYPE, sortType.getAsString()).apply()
+        }
+
+    override var appVersions: List<AppVersion>
+        get() {
+            val versionsString = App.preferences.getString(APP_VERSIONS, null) ?: return listOf()
+            val type = object : TypeToken<ArrayList<AppVersion>>() {}.type
+            return gson.fromJson(versionsString, type)
+        }
+        set(value) {
+            val versionsString = gson.toJson(value)
+            App.preferences.edit().putString(APP_VERSIONS, versionsString).apply()
+        }
+
+    override var isAlertNotificationOn: Boolean
+        get() = App.preferences.getBoolean(ALERT_NOTIFICATION_ENABLED, true)
+        set(enabled) {
+            App.preferences.edit().putBoolean(ALERT_NOTIFICATION_ENABLED, enabled).apply()
+        }
+
+    override var isLockTimeEnabled: Boolean
+        get() = App.preferences.getBoolean(LOCK_TIME_ENABLED, false)
+        set(enabled) {
+            App.preferences.edit().putBoolean(LOCK_TIME_ENABLED, enabled).apply()
+        }
+
     override fun clear() {
         App.preferences.edit().clear().apply()
     }
 
+    //  IChartTypeStorage
+
+    override var chartType: ChartType?
+        get() {
+            return ChartType.fromString(App.preferences.getString(CHART_TYPE, null))
+        }
+        set(mode) {
+            App.preferences.edit().putString(CHART_TYPE, mode?.name).apply()
+        }
 }

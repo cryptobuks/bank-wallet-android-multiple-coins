@@ -1,36 +1,50 @@
 package io.horizontalsystems.bankwallet.modules.restore
 
-import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import io.horizontalsystems.bankwallet.SingleLiveEvent
-import io.horizontalsystems.bankwallet.core.IKeyStoreSafeExecute
+import io.horizontalsystems.bankwallet.core.IPredefinedAccountType
 
-class RestoreViewModel : ViewModel(), RestoreModule.IView, RestoreModule.IRouter, IKeyStoreSafeExecute {
+class RestoreViewModel : ViewModel(), RestoreModule.View, RestoreModule.Router {
 
-    lateinit var delegate: RestoreModule.IViewDelegate
+    lateinit var delegate: RestoreModule.ViewDelegate
 
-    val errorLiveData = MutableLiveData<Int>()
-    val navigateToSetPinLiveEvent = SingleLiveEvent<Void>()
-    val keyStoreSafeExecute = SingleLiveEvent<Triple<Runnable, Runnable?, Runnable?>>()
-    val showConfirmationDialogLiveEvent = SingleLiveEvent<Void>()
+    val reloadLiveEvent = SingleLiveEvent<List<IPredefinedAccountType>>()
+    val showErrorLiveEvent = SingleLiveEvent<Exception>()
+    val startRestoreWordsLiveEvent = SingleLiveEvent<Pair<Int, Int>>()
+    val startRestoreEosLiveEvent = SingleLiveEvent<Int>()
+    val startMainModuleLiveEvent = SingleLiveEvent<Unit>()
+    val closeLiveEvent = SingleLiveEvent<Unit>()
 
     fun init() {
-        RestoreModule.init(this, this, this)
+        RestoreModule.init(this, this)
+        delegate.viewDidLoad()
     }
 
-    override fun showError(error: Int) {
-        errorLiveData.value = error
+    //  View
+
+    override fun reload(items: List<IPredefinedAccountType>) {
+        reloadLiveEvent.postValue(items)
     }
 
-    override fun navigateToSetPin() {
-        navigateToSetPinLiveEvent.call()
+    override fun showError(ex: Exception) {
+        showErrorLiveEvent.postValue(ex)
     }
 
-    override fun safeExecute(action: Runnable, onSuccess: Runnable?, onFailure: Runnable?) {
-        keyStoreSafeExecute.value = Triple(action, onSuccess, onFailure)
+    //  Router
+
+    override fun startRestoreWordsModule(wordsCount: Int, titleRes: Int) {
+        startRestoreWordsLiveEvent.postValue(Pair(wordsCount, titleRes))
     }
 
-    override fun showConfirmationDialog() {
-        showConfirmationDialogLiveEvent.call()
+    override fun startRestoreEosModule(titleRes: Int) {
+        startRestoreEosLiveEvent.postValue(titleRes)
+    }
+
+    override fun startMainModule() {
+        startMainModuleLiveEvent.call()
+    }
+
+    override fun close() {
+        closeLiveEvent.call()
     }
 }

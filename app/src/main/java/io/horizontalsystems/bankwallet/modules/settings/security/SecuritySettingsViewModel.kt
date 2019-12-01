@@ -3,61 +3,70 @@ package io.horizontalsystems.bankwallet.modules.settings.security
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import io.horizontalsystems.bankwallet.SingleLiveEvent
-import io.horizontalsystems.bankwallet.entities.BiometryType
 
 class SecuritySettingsViewModel : ViewModel(), SecuritySettingsModule.ISecuritySettingsView, SecuritySettingsModule.ISecuritySettingsRouter {
 
     lateinit var delegate: SecuritySettingsModule.ISecuritySettingsViewDelegate
 
-    val biometryTypeLiveDate = MutableLiveData<BiometryType>()
+    val backupAlertVisibleLiveData = MutableLiveData<Boolean>()
+    val pinSetLiveData = MutableLiveData<Boolean>()
+    val editPinVisibleLiveData = MutableLiveData<Boolean>()
+    val biometricSettingsVisibleLiveData = MutableLiveData<Boolean>()
+    val biometricEnabledLiveData = MutableLiveData<Boolean>()
 
-    val backedUpLiveData = MutableLiveData<Boolean>()
-    val biometricUnlockOnLiveDate = MutableLiveData<Boolean>()
+    val openManageKeysLiveEvent = SingleLiveEvent<Unit>()
     val openEditPinLiveEvent = SingleLiveEvent<Unit>()
-    val openBackupWalletLiveEvent = SingleLiveEvent<Unit>()
-    val openRestoreWalletLiveEvent = SingleLiveEvent<Unit>()
-    val reloadAppLiveEvent = SingleLiveEvent<Unit>()
-    val showPinUnlockLiveEvent = SingleLiveEvent<Unit>()
+    val openSetPinLiveEvent = SingleLiveEvent<Unit>()
+    val openUnlockPinLiveEvent = SingleLiveEvent<Unit>()
 
     fun init() {
         SecuritySettingsModule.init(this, this)
         delegate.viewDidLoad()
     }
 
-    override fun setBiometricUnlockOn(biometricUnlockOn: Boolean) {
-        biometricUnlockOnLiveDate.value = biometricUnlockOn
+    //  ViewModel
+
+    override fun onCleared() {
+        delegate.onClear()
     }
 
-    override fun setBiometryType(biometryType: BiometryType) {
-        biometryTypeLiveDate.value = biometryType
+    //  ISecuritySettingsView
+
+    override fun setBackupAlertVisible(visible: Boolean) {
+        backupAlertVisibleLiveData.postValue(visible)
     }
 
-    override fun setBackedUp(backedUp: Boolean) {
-        backedUpLiveData.value = backedUp
+    override fun togglePinSet(pinSet: Boolean) {
+        pinSetLiveData.postValue(pinSet)
+    }
+
+    override fun setEditPinVisible(visible: Boolean) {
+        editPinVisibleLiveData.postValue(visible)
+    }
+
+    override fun setBiometricSettingsVisible(visible: Boolean) {
+        biometricSettingsVisibleLiveData.postValue(visible)
+    }
+
+    override fun toggleBiometricEnabled(enabled: Boolean) {
+        biometricEnabledLiveData.postValue(enabled)
+    }
+
+    //  ISecuritySettingsRouter
+
+    override fun showManageKeys() {
+        openManageKeysLiveEvent.call()
     }
 
     override fun showEditPin() {
         openEditPinLiveEvent.call()
     }
 
-    override fun showBackupWallet() {
-        openBackupWalletLiveEvent.call()
+    override fun showSetPin() {
+        openSetPinLiveEvent.call()
     }
 
-    override fun showRestoreWallet() {
-        openRestoreWalletLiveEvent.call()
+    override fun showUnlockPin() {
+        openUnlockPinLiveEvent.call()
     }
-
-    override fun reloadApp() {
-        reloadAppLiveEvent.call()
-    }
-
-    override fun showPinUnlock() {
-        showPinUnlockLiveEvent.call()
-    }
-
-    override fun onCleared() {
-        delegate.onClear()
-    }
-
 }

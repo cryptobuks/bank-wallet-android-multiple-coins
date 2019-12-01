@@ -5,13 +5,13 @@
     android:layout_height="wrap_content"
     android:orientation="vertical">
 
-    <io.horizontalsystems.bankwallet.modules.fulltransactioninfo.FullTransactionInfoItemView
+    <io.horizontalsystems.bankwallet.modules.fulltransactioninfo.views.FullTransactionInfoItemView
         android:id="@+id/transactionSource"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:paddingTop="16dp"
         android:paddingBottom="24dp"
-        android:textColor="@color/yellow_crypto"
+        android:textColor="?ColorJacob"
         app:title="Title"
         app:value="Value" />
 

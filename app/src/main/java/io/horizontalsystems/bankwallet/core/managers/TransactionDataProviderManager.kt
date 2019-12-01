@@ -5,13 +5,14 @@ import io.horizontalsystems.bankwallet.core.ILocalStorage
 import io.horizontalsystems.bankwallet.core.ITransactionDataProviderManager
 import io.horizontalsystems.bankwallet.entities.Coin
 import io.horizontalsystems.bankwallet.entities.CoinType
+import io.horizontalsystems.bankwallet.modules.fulltransactioninfo.FullTransactionInfoModule
 import io.horizontalsystems.bankwallet.modules.fulltransactioninfo.FullTransactionInfoModule.BitcoinForksProvider
 import io.horizontalsystems.bankwallet.modules.fulltransactioninfo.FullTransactionInfoModule.EthereumForksProvider
 import io.horizontalsystems.bankwallet.modules.fulltransactioninfo.FullTransactionInfoModule.Provider
 import io.horizontalsystems.bankwallet.modules.fulltransactioninfo.providers.*
 import io.reactivex.subjects.PublishSubject
 
-class TransactionDataProviderManager(private val appConfig: IAppConfigProvider, private val localStorage: ILocalStorage)
+class TransactionDataProviderManager(appConfig: IAppConfigProvider, private val localStorage: ILocalStorage)
     : ITransactionDataProviderManager {
 
     private val bitcoinProviders = when {
@@ -19,26 +20,22 @@ class TransactionDataProviderManager(private val appConfig: IAppConfigProvider, 
         else -> listOf(
                 HorsysBitcoinProvider(testMode = false),
                 BlockChairBitcoinProvider(),
-                BlockExplorerBitcoinProvider(),
                 BtcComBitcoinProvider())
     }
 
     private val bitcoinCashProviders = when {
-        appConfig.testMode -> listOf(HorsysBitcoinCashProvider(testMode = true))
+        appConfig.testMode -> listOf(BlockdozerBitcoinCashProvider(true))
         else -> listOf(
-                HorsysBitcoinCashProvider(testMode = false),
+                BlockdozerBitcoinCashProvider(false),
                 BlockChairBitcoinCashProvider(),
-                BlockExplorerBitcoinCashProvider(),
                 BtcComBitcoinCashProvider())
     }
 
     private val ethereumProviders = when {
         appConfig.testMode -> listOf(
-//                    HorsysEthereumProvider(testMode = true),
                 EtherscanEthereumProvider(testMode = true))
         else -> listOf(
                 EtherscanEthereumProvider(testMode = false),
-//                    HorsysEthereumProvider(testMode = false),
                 BlockChairEthereumProvider())
     }
 
@@ -51,6 +48,13 @@ class TransactionDataProviderManager(private val appConfig: IAppConfigProvider, 
         )
     }
 
+    private val binanceProviders = when {
+        appConfig.testMode -> listOf(BinanceChainProvider(true))
+        else -> listOf(BinanceChainProvider(false))
+    }
+
+    private val eosProviders = listOf(EosGreymassProvider())
+
     override val baseProviderUpdatedSignal = PublishSubject.create<Unit>()
 
     override fun providers(coin: Coin): List<Provider> = when (coin.type) {
@@ -58,6 +62,8 @@ class TransactionDataProviderManager(private val appConfig: IAppConfigProvider, 
         is CoinType.BitcoinCash -> bitcoinCashProviders
         is CoinType.Ethereum, is CoinType.Erc20 -> ethereumProviders
         is CoinType.Dash -> dashProviders
+        is CoinType.Binance -> binanceProviders
+        is CoinType.Eos -> eosProviders
     }
 
     override fun baseProvider(coin: Coin) = when (coin.type) {
@@ -69,6 +75,12 @@ class TransactionDataProviderManager(private val appConfig: IAppConfigProvider, 
         }
         is CoinType.Dash -> {
             dash(localStorage.baseDashProvider ?: dashProviders[0].name)
+        }
+        is CoinType.Binance -> {
+            binance(localStorage.baseBinanceProvider ?: binanceProviders[0].name)
+        }
+        is CoinType.Eos -> {
+            eos(localStorage.baseEosProvider ?: eosProviders[0].name)
         }
     }
 
@@ -83,14 +95,18 @@ class TransactionDataProviderManager(private val appConfig: IAppConfigProvider, 
             is CoinType.Dash -> {
                 localStorage.baseDashProvider = name
             }
+            is CoinType.Eos -> {
+                localStorage.baseEosProvider = name
+            }
         }
 
         baseProviderUpdatedSignal.onNext(Unit)
     }
 
-    //
-    // Providers
-    //
+//
+// Providers
+//
+
     override fun bitcoin(name: String): BitcoinForksProvider {
         bitcoinProviders.let { list ->
             return list.find { it.name == name } ?: list[0]
@@ -114,4 +130,17 @@ class TransactionDataProviderManager(private val appConfig: IAppConfigProvider, 
             return list.find { it.name == name } ?: list[0]
         }
     }
+
+    override fun binance(name: String): FullTransactionInfoModule.BinanceProvider {
+        binanceProviders.let { list ->
+            return list.find { it.name == name } ?: list[0]
+        }
+    }
+
+    override fun eos(name: String): FullTransactionInfoModule.EosProvider {
+        eosProviders.let { list ->
+            return list.find { it.name == name } ?: list[0]
+        }
+    }
+
 }

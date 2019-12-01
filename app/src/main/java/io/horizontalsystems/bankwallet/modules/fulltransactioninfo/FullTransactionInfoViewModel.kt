@@ -4,6 +4,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import io.horizontalsystems.bankwallet.SingleLiveEvent
 import io.horizontalsystems.bankwallet.entities.Coin
+import io.horizontalsystems.bankwallet.entities.Wallet
 
 class FullTransactionInfoViewModel : ViewModel(), FullTransactionInfoModule.View, FullTransactionInfoModule.Router {
 
@@ -16,9 +17,10 @@ class FullTransactionInfoViewModel : ViewModel(), FullTransactionInfoModule.View
     val showShareLiveEvent = SingleLiveEvent<String>()
     val openLinkLiveEvent = SingleLiveEvent<String>()
     val openProviderSettingsEvent = SingleLiveEvent<Pair<Coin, String>>()
+    val shareButtonVisibility = MutableLiveData<Boolean>()
 
-    fun init(transactionHash: String, coin: Coin) {
-        FullTransactionInfoModule.init(this, this, coin, transactionHash)
+    fun init(transactionHash: String, wallet: Wallet) {
+        FullTransactionInfoModule.init(this, this, wallet, transactionHash)
         delegate.viewDidLoad()
     }
 
@@ -35,9 +37,11 @@ class FullTransactionInfoViewModel : ViewModel(), FullTransactionInfoModule.View
     }
 
     //
-    // View
+    // IView
     //
-    override fun show() {
+
+    override fun setShareButtonVisibility(visible: Boolean) {
+        shareButtonVisibility.postValue(visible)
     }
 
     override fun showLoading() {

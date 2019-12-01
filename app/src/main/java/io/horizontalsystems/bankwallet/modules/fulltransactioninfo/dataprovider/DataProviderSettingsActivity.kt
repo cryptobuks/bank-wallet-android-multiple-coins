@@ -28,16 +28,16 @@ class DataProviderSettingsActivity : BaseActivity(), DataProviderSettingsAdapter
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val coin = intent.extras.getSerializable(DataProviderSettingsModule.COIN_STRING)
-        val txHash = intent.extras.getString(DataProviderSettingsModule.TRANSACTION_HASH)
+        val coin = intent.getParcelableExtra<Coin>(DataProviderSettingsModule.COIN_STRING)
+        val txHash = intent.getStringExtra(DataProviderSettingsModule.TRANSACTION_HASH)
         viewModel = ViewModelProviders.of(this).get(DataProviderSettingsViewModel::class.java)
-        viewModel.init(coin as Coin, txHash)
+        viewModel.init(coin, txHash)
 
         setContentView(R.layout.activity_explorer_switcher)
 
         shadowlessToolbar.bind(
                 title = getString(R.string.FullInfo_Source),
-                leftBtnItem = TopMenuItem(R.drawable.back, { onBackPressed() })
+                leftBtnItem = TopMenuItem(R.drawable.back, onClick = { onBackPressed() })
         )
 
         adapter = DataProviderSettingsAdapter(this)
@@ -108,9 +108,9 @@ class ViewHolderDataProviderSettings(private val context: Context, override val 
         subtitle.text = context.getString(if (item.online) R.string.FullInfo_Source_Online else R.string.FullInfo_Source_Offline)
 
         if (item.online) {
-            subtitle.setTextColor(subtitle.resources.getColor(R.color.green_crypto))
+            subtitle.setTextColor(subtitle.resources.getColor(R.color.green_d))
         } else {
-            subtitle.setTextColor(subtitle.resources.getColor(R.color.red_warning))
+            subtitle.setTextColor(subtitle.resources.getColor(R.color.red_d))
         }
 
         if (item.checking) {

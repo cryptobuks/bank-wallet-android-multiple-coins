@@ -1,16 +1,14 @@
 package io.horizontalsystems.bankwallet.core.managers
 
+import android.app.Activity
 import io.horizontalsystems.bankwallet.core.App
 import io.horizontalsystems.bankwallet.core.ILockManager
-import io.horizontalsystems.bankwallet.core.ISecuredStorage
-import io.horizontalsystems.bankwallet.modules.pin.PinModule
+import io.horizontalsystems.bankwallet.core.IPinManager
 import io.horizontalsystems.bankwallet.viewHelpers.DateHelper
 import io.reactivex.subjects.PublishSubject
 import java.util.*
 
-class LockManager(
-        private val securedStorage: ISecuredStorage,
-        private val authManager: AuthManager) : ILockManager {
+class LockManager(private val pinManager: IPinManager) : ILockManager, BackgroundManager.Listener {
 
     private val lockTimeout: Double = 60.0
 
@@ -23,29 +21,22 @@ class LockManager(
         }
 
     override fun didEnterBackground() {
-        if (!authManager.isLoggedIn || isLocked) {
+        if (isLocked) {
             return
         }
 
         App.lastExitDate = Date().time
     }
 
-    override fun willEnterForeground() {
-        if (!authManager.isLoggedIn || isLocked || securedStorage.pinIsEmpty()) {
+    override fun willEnterForeground(activity: Activity) {
+        if (isLocked || !pinManager.isPinSet) {
             return
         }
 
         val secondsAgo = DateHelper.getSecondsAgo(App.lastExitDate)
-        if (secondsAgo < lockTimeout) {
-            return
+        if (secondsAgo > lockTimeout) {
+            isLocked = true
         }
-
-        lock()
-    }
-
-    override fun lock() {
-        isLocked = true
-        PinModule.startForUnlock()
     }
 
     override fun onUnlock() {

@@ -1,64 +1,84 @@
 package io.horizontalsystems.bankwallet.modules.balance
 
-import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import io.horizontalsystems.bankwallet.SingleLiveEvent
+import io.horizontalsystems.bankwallet.core.IPredefinedAccountType
+import io.horizontalsystems.bankwallet.entities.Account
+import io.horizontalsystems.bankwallet.entities.Coin
+import io.horizontalsystems.bankwallet.entities.Wallet
 
 class BalanceViewModel : ViewModel(), BalanceModule.IView, BalanceModule.IRouter {
 
     lateinit var delegate: BalanceModule.IViewDelegate
 
-    val openSendDialog = SingleLiveEvent<String>()
-    val openReceiveDialog = SingleLiveEvent<String>()
-    val balanceColorLiveDate = MutableLiveData<Int>()
-    val didRefreshLiveEvent = SingleLiveEvent<Void>()
+    val openReceiveDialog = SingleLiveEvent<Wallet>()
+    val openSendDialog = SingleLiveEvent<Wallet>()
     val openManageCoinsLiveEvent = SingleLiveEvent<Void>()
+    val openSortingTypeDialogLiveEvent = SingleLiveEvent<BalanceSortType>()
+    val openBackup = SingleLiveEvent<Pair<Account, Int>>()
+    val openChartModule = SingleLiveEvent<Coin>()
 
-    val reloadLiveEvent = SingleLiveEvent<Void>()
-    val reloadHeaderLiveEvent = SingleLiveEvent<Void>()
-    val reloadItemLiveEvent = SingleLiveEvent<Int>()
+    val isSortOn = SingleLiveEvent<Boolean>()
+    val setHeaderViewItem = SingleLiveEvent<BalanceHeaderViewItem>()
+    val setViewItems = SingleLiveEvent<List<BalanceViewItem>>()
+    val showBackupAlert = SingleLiveEvent<Pair<Coin, IPredefinedAccountType>>()
+    val didRefreshLiveEvent = SingleLiveEvent<Void>()
 
     fun init() {
         BalanceModule.init(this, this)
 
-        delegate.viewDidLoad()
+        delegate.onLoad()
     }
 
-    override fun reload() {
-        reloadLiveEvent.postValue(null)
+    // IRouter
+
+    override fun openReceive(wallet: Wallet) {
+        openReceiveDialog.postValue(wallet)
     }
 
-    override fun updateItem(position: Int) {
-        reloadItemLiveEvent.value = position
-    }
-
-    override fun updateHeader() {
-        reloadHeaderLiveEvent.postValue(null)
-    }
-
-    override fun openReceiveDialog(coin: String) {
-        openReceiveDialog.value = coin
-    }
-
-    override fun openSendDialog(coin: String) {
-        openSendDialog.value = coin
-    }
-
-    fun onReceiveClicked(position: Int) {
-        delegate.onReceive(position)
-    }
-
-    fun onSendClicked(position: Int) {
-        delegate.onPay(position)
-    }
-
-    override fun didRefresh() {
-        didRefreshLiveEvent.call()
+    override fun openSend(wallet: Wallet) {
+        openSendDialog.postValue(wallet)
     }
 
     override fun openManageCoins() {
         openManageCoinsLiveEvent.call()
     }
+
+    override fun openSortTypeDialog(sortingType: BalanceSortType) {
+        openSortingTypeDialogLiveEvent.postValue(sortingType)
+    }
+
+    override fun openBackup(account: Account, coinCodesStringRes: Int) {
+        openBackup.postValue(Pair(account, coinCodesStringRes))
+    }
+
+    override fun openChart(coin: Coin) {
+        openChartModule.postValue(coin)
+    }
+
+    // IView
+
+    override fun set(sortIsOn: Boolean) {
+        isSortOn.postValue(sortIsOn)
+    }
+
+    override fun set(headerViewItem: BalanceHeaderViewItem) {
+        setHeaderViewItem.postValue(headerViewItem)
+    }
+
+    override fun set(viewItems: List<BalanceViewItem>) {
+        setViewItems.postValue(viewItems)
+    }
+
+    override fun showBackupRequired(coin: Coin, predefinedAccountType: IPredefinedAccountType) {
+        showBackupAlert.postValue(Pair(coin, predefinedAccountType))
+    }
+
+    override fun didRefresh() {
+        didRefreshLiveEvent.postValue(null)
+    }
+
+    // ViewModel
 
     override fun onCleared() {
         delegate.onClear()

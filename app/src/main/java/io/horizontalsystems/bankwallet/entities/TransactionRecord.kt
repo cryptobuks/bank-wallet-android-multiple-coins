@@ -1,17 +1,20 @@
 package io.horizontalsystems.bankwallet.entities
 
+import io.horizontalsystems.bitcoincore.core.IPluginOutputData
 import java.math.BigDecimal
 import java.util.*
 
-data class TransactionRecord(val transactionHash: String,
-                             val transactionIndex: Int,
-                             val interTransactionIndex: Int,
-                             val blockHeight: Long?,
-                             val amount: BigDecimal,
-                             val timestamp: Long,
-
-                             val from: List<TransactionAddress>,
-                             val to: List<TransactionAddress>) : Comparable<TransactionRecord> {
+data class TransactionRecord(
+        val transactionHash: String,
+        val transactionIndex: Int,
+        val interTransactionIndex: Int,
+        val blockHeight: Long?,
+        val amount: BigDecimal,
+        val fee: BigDecimal? = null,
+        val timestamp: Long,
+        val from: List<TransactionAddress>,
+        val to: List<TransactionAddress>)
+    : Comparable<TransactionRecord> {
 
     override fun compareTo(other: TransactionRecord): Int {
         return when {
@@ -33,7 +36,7 @@ data class TransactionRecord(val transactionHash: String,
     }
 }
 
-data class TransactionItem(val coin: Coin, val record: TransactionRecord) : Comparable<TransactionItem> {
+data class TransactionItem(val wallet: Wallet, val record: TransactionRecord) : Comparable<TransactionItem> {
     override fun compareTo(other: TransactionItem): Int {
         return record.compareTo(other.record)
     }
@@ -50,4 +53,7 @@ data class TransactionItem(val coin: Coin, val record: TransactionRecord) : Comp
     }
 }
 
-class TransactionAddress(val address: String, val mine: Boolean)
+class TransactionAddress(
+        val address: String,
+        val mine: Boolean,
+        val pluginData: Map<Byte, IPluginOutputData>? = null)

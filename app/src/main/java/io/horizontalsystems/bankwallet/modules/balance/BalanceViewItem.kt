@@ -1,19 +1,22 @@
 package io.horizontalsystems.bankwallet.modules.balance
 
 import io.horizontalsystems.bankwallet.core.AdapterState
-import io.horizontalsystems.bankwallet.entities.Coin
-import io.horizontalsystems.bankwallet.entities.CoinValue
-import io.horizontalsystems.bankwallet.entities.Currency
-import io.horizontalsystems.bankwallet.entities.CurrencyValue
+import io.horizontalsystems.bankwallet.entities.*
+import io.horizontalsystems.bankwallet.modules.balance.BalanceModule.ChartInfoState
 import java.math.BigDecimal
 
 data class BalanceViewItem(
+        val wallet: Wallet,
         val coin: Coin,
         val coinValue: CoinValue,
         val exchangeValue: CurrencyValue?,
+        val diff: BigDecimal?,
         val currencyValue: CurrencyValue?,
         val state: AdapterState,
-        val rateExpired: Boolean
+        val marketInfoExpired: Boolean,
+        val chartInfoState: ChartInfoState,
+        val coinValueLocked: CoinValue,
+        val currencyValueLocked: CurrencyValue?
 )
 
 data class BalanceHeaderViewItem(
@@ -23,39 +26,55 @@ data class BalanceHeaderViewItem(
 
 class BalanceViewItemFactory {
 
-    fun createViewItem(item: BalanceModule.BalanceItem, currency: Currency?): BalanceViewItem {
-        var exchangeValue: CurrencyValue? = null
-        var currencyValue: CurrencyValue? = null
+    fun viewItem(item: BalanceModule.BalanceItem, currency: Currency): BalanceViewItem {
+        val balanceTotal = item.balanceTotal ?: BigDecimal.ZERO
+        val balanceLocked = item.balanceLocked ?: BigDecimal.ZERO
 
-        item.rate?.let { rate ->
-            currency?.let {
-                exchangeValue = CurrencyValue(it, rate.value)
-                currencyValue = CurrencyValue(it, rate.value * item.balance)
-            }
+        var exchangeValue: CurrencyValue? = null
+        var currencyValueTotal: CurrencyValue? = null
+        var currencyValueLocked: CurrencyValue? = null
+
+        item.marketInfo?.rate?.let { rate ->
+            exchangeValue = CurrencyValue(currency, rate)
+            currencyValueTotal = CurrencyValue(currency, rate * balanceTotal)
+            currencyValueLocked = CurrencyValue(currency, rate * balanceLocked)
         }
 
         return BalanceViewItem(
-                item.coin,
-                CoinValue(item.coin.code, item.balance),
+                item.wallet,
+                item.wallet.coin,
+                CoinValue(item.wallet.coin, balanceTotal),
                 exchangeValue,
-                currencyValue,
-                item.state,
-                item.rate?.expired ?: false
+                item.marketInfo?.diff,
+                currencyValueTotal,
+                item.state ?: AdapterState.NotReady,
+                item.marketInfo?.isExpired() ?: false,
+                item.chartInfoState,
+                CoinValue(item.wallet.coin, balanceLocked),
+                currencyValueLocked
         )
     }
 
-    fun createHeaderViewItem(items: List<BalanceModule.BalanceItem>, currency: Currency?): BalanceHeaderViewItem {
-        var sum = BigDecimal.ZERO
-        items.forEach {
-            sum = sum.plus(it.rate?.value?.times(it.balance) ?: BigDecimal.ZERO)
-        }
-        val currencyValue = currency?.let {
-            CurrencyValue(it, sum)
+    fun headerViewItem(items: List<BalanceModule.BalanceItem>, currency: Currency): BalanceHeaderViewItem {
+        var total = BigDecimal.ZERO
+        var upToDate = true
+
+        items.forEach { item ->
+            val balanceTotal = item.balanceTotal
+            val marketInfo = item.marketInfo
+
+            if (balanceTotal != null && marketInfo != null) {
+                total += balanceTotal.multiply(marketInfo.rate)
+
+                upToDate = !marketInfo.isExpired()
+            }
+
+            if (item.state == null || item.state != AdapterState.Synced) {
+                upToDate = false
+            }
         }
 
-        val upToDate = items.none { it.state != AdapterState.Synced || it.rate == null || it.rate?.expired == true }
-
-        return BalanceHeaderViewItem(currencyValue, upToDate)
+        return BalanceHeaderViewItem(CurrencyValue(currency, total), upToDate)
     }
 
 }

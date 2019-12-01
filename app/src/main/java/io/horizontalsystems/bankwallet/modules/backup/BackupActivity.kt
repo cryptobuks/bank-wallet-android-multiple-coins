@@ -8,103 +8,95 @@ import androidx.lifecycle.ViewModelProviders
 import io.horizontalsystems.bankwallet.BaseActivity
 import io.horizontalsystems.bankwallet.R
 import io.horizontalsystems.bankwallet.core.setOnSingleClickListener
+import io.horizontalsystems.bankwallet.core.utils.ModuleCode
+import io.horizontalsystems.bankwallet.entities.Account
+import io.horizontalsystems.bankwallet.modules.backup.eos.BackupEosModule
+import io.horizontalsystems.bankwallet.modules.backup.words.BackupWordsModule
 import io.horizontalsystems.bankwallet.modules.pin.PinModule
-import io.horizontalsystems.bankwallet.ui.dialogs.BottomConfirmAlert
-import kotlinx.android.synthetic.main.activity_backup_words.*
+import kotlinx.android.synthetic.main.activity_backup.*
+import kotlinx.android.synthetic.main.activity_backup_words.buttonBack
+import kotlinx.android.synthetic.main.activity_backup_words.buttonNext
 
-class BackupActivity : BaseActivity(), BottomConfirmAlert.Listener {
+class BackupActivity : BaseActivity() {
 
     private lateinit var viewModel: BackupViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_backup)
 
-        setContentView(R.layout.activity_backup_words)
+        val account = intent.getParcelableExtra<Account>(ACCOUNT_KEY)
+        val accountCoins = intent.getStringExtra(ACCOUNT_COINS)
 
         viewModel = ViewModelProviders.of(this).get(BackupViewModel::class.java)
-        viewModel.init(BackupPresenter.DismissMode.valueOf(intent.getStringExtra(dismissModeKey)))
+        viewModel.init(account)
 
-        if (savedInstanceState == null) {
-            viewModel.delegate.viewDidLoad()
-        }
+        buttonBack.setOnSingleClickListener { viewModel.delegate.onClickCancel() }
+        buttonNext.setOnSingleClickListener { viewModel.delegate.onClickBackup() }
 
-        buttonBack.setOnSingleClickListener { viewModel.delegate.onBackClick() }
-        buttonNext.setOnSingleClickListener { viewModel.delegate.onNextClick() }
+        viewModel.startPinModule.observe(this, Observer {
+            PinModule.startForUnlock(this, ModuleCode.UNLOCK_PIN)
+        })
 
-        viewModel.navigateToSetPinLiveEvent.observe(this, Observer {
-            PinModule.startForSetPin(this)
+        viewModel.startBackupWordsModule.observe(this, Observer {
+            BackupWordsModule.start(this, it, account.isBackedUp)
+        })
+
+        viewModel.startBackupEosModule.observe(this, Observer {
+            BackupEosModule.start(this, it.first, it.second)
         })
 
         viewModel.closeLiveEvent.observe(this, Observer {
             finish()
         })
 
-        viewModel.keyStoreSafeExecute.observe(this, Observer { triple ->
-            triple?.let {
-                val (action, onSuccess, onFailure) = it
-                safeExecuteWithKeystore(action, onSuccess, onFailure)
-            }
-        })
+        backupIntro.text = getString(R.string.Backup_Intro_Subtitle, accountCoins)
 
-        viewModel.showConfirmationCheckDialogLiveEvent.observe(this, Observer {
-            val confirmationList = mutableListOf(
-                    R.string.Backup_Confirmation_SecretKey,
-                    R.string.Backup_Confirmation_DeleteAppWarn,
-                    R.string.Backup_Confirmation_LockAppWarn,
-                    R.string.Backup_Confirmation_Disclaimer
-            )
-            BottomConfirmAlert.show(this, confirmationList, this)
-        })
-
-        viewModel.loadPageLiveEvent.observe(this, Observer { page ->
-            page?.let {
-                val fragment = when(it) {
-                    0 -> BackupInfoFragment()
-                    1 -> BackupWordsFragment()
-                    else -> BackupConfirmFragment()
-                }
-                val transaction = supportFragmentManager.beginTransaction()
-                transaction.replace(R.id.fragmentContainer, fragment)
-                transaction.addToBackStack(null)
-                transaction.commit()
-
-                setButtons(it)
-            }
-        })
-
+        if (account.isBackedUp) {
+            backupTitle.text = getString(R.string.Backup_Intro_TitleShow)
+            buttonBack.text = getString(R.string.Button_Close)
+            buttonNext.text = getString(R.string.Backup_Button_ShowKey)
+        }
     }
 
-    private fun setButtons(page: Int) {
-        when(page) {
-            0 -> {
-                buttonBack.setText(R.string.Backup_Intro_Later)
-                buttonNext.setText(R.string.Backup_Intro_BackupNow)
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        when (requestCode) {
+            ModuleCode.BACKUP_WORDS -> {
+                when (resultCode) {
+                    BackupWordsModule.RESULT_BACKUP -> {
+                        viewModel.delegate.didBackup()
+                    }
+                }
+                finish()
             }
-            1 -> {
-                buttonBack.setText(R.string.Button_Back)
-                buttonNext.setText(R.string.Backup_Button_Next)
+            ModuleCode.BACKUP_EOS -> {
+                finish()
             }
-            else -> {
-                buttonBack.setText(R.string.Button_Back)
-                buttonNext.setText(R.string.Backup_Button_Submit)
+            ModuleCode.UNLOCK_PIN -> {
+                when (resultCode) {
+                    PinModule.RESULT_OK -> viewModel.delegate.didUnlock()
+                    PinModule.RESULT_CANCELLED -> viewModel.delegate.didCancelUnlock()
+                }
             }
         }
     }
 
     override fun onBackPressed() {
-        viewModel.delegate.onBackClick()
-    }
-
-    override fun onConfirmationSuccess() {
-        viewModel.delegate.onTermsConfirm()
+        viewModel.delegate.onClickCancel()
     }
 
     companion object {
-        private const val dismissModeKey = "DismissMode"
+        const val ACCOUNT_KEY = "account_key"
+        const val ACCOUNT_COINS = "account_coins"
 
-        fun start(context: Context, dismissMode: BackupPresenter.DismissMode) {
-            val intent = Intent(context, BackupActivity::class.java)
-            intent.putExtra(dismissModeKey, dismissMode.name)
+        fun start(context: Context, account: Account, coinCodes: String) {
+            val intent = Intent(context, BackupActivity::class.java).apply {
+                putExtra(ACCOUNT_KEY, account)
+                putExtra(ACCOUNT_COINS, coinCodes)
+            }
+
             context.startActivity(intent)
         }
     }

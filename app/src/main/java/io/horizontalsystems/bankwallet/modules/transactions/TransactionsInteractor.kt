@@ -1,12 +1,10 @@
 package io.horizontalsystems.bankwallet.modules.transactions
 
-import io.horizontalsystems.bankwallet.core.IAdapter
-import io.horizontalsystems.bankwallet.core.IAdapterManager
-import io.horizontalsystems.bankwallet.core.ICurrencyManager
-import io.horizontalsystems.bankwallet.core.managers.NetworkAvailabilityManager
-import io.horizontalsystems.bankwallet.core.managers.RateManager
+import io.horizontalsystems.bankwallet.core.*
+import io.horizontalsystems.bankwallet.core.managers.ConnectivityManager
 import io.horizontalsystems.bankwallet.entities.Coin
 import io.horizontalsystems.bankwallet.entities.TransactionRecord
+import io.horizontalsystems.bankwallet.entities.Wallet
 import io.reactivex.Single
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.disposables.CompositeDisposable
@@ -14,10 +12,11 @@ import io.reactivex.schedulers.Schedulers
 import java.util.concurrent.TimeUnit
 
 class TransactionsInteractor(
+        private val walletManager: IWalletManager,
         private val adapterManager: IAdapterManager,
         private val currencyManager: ICurrencyManager,
-        private val rateManager: RateManager,
-        private val networkAvailabilityManager: NetworkAvailabilityManager) : TransactionsModule.IInteractor {
+        private val rateManager: IRateManager,
+        private val connectivityManager: ConnectivityManager) : TransactionsModule.IInteractor {
 
     var delegate: TransactionsModule.IInteractorDelegate? = null
 
@@ -28,13 +27,13 @@ class TransactionsInteractor(
     private var requestedTimestamps = hashMapOf<String, Long>()
 
     override fun initialFetch() {
-        onUpdateCoinCodes()
+        onUpdateWallets()
 
-        adapterManager.adaptersUpdatedSignal
+        adapterManager.adaptersReadyObservable
                 .subscribeOn(Schedulers.io())
                 .observeOn(Schedulers.io())
                 .subscribe {
-                    onUpdateCoinCodes()
+                    onUpdateWallets()
                 }
                 .let { disposables.add(it) }
 
@@ -48,11 +47,11 @@ class TransactionsInteractor(
                 }
                 .let { disposables.add(it) }
 
-        networkAvailabilityManager.networkAvailabilitySignal
+        connectivityManager.networkAvailabilitySignal
                 .subscribeOn(Schedulers.io())
                 .observeOn(Schedulers.io())
                 .subscribe {
-                    if (networkAvailabilityManager.isConnected) {
+                    if (connectivityManager.isConnected) {
                         delegate?.onConnectionRestore()
                     }
                 }
@@ -65,31 +64,24 @@ class TransactionsInteractor(
             return
         }
 
-        val flowables = mutableListOf<Single<Pair<Coin, List<TransactionRecord>>>>()
-
-        fetchDataList.forEach { fetchData ->
-            val adapter = adapterManager.adapters.find { it.coin == fetchData.coin }
-
-            val flowable = when (adapter) {
-                null -> Single.just(Pair(fetchData.coin, listOf()))
-                else -> {
-                    adapter.getTransactions(fetchData.from, fetchData.limit)
-                            .map {
-                                Pair(fetchData.coin, it)
-                            }
-                }
+        val flowables: List<Single<Pair<Wallet, List<TransactionRecord>>>> = fetchDataList.map { fetchData ->
+            val adapter = walletManager.wallets.find { it == fetchData.wallet }?.let {
+                adapterManager.getTransactionsAdapterForWallet(it)
             }
 
-            flowables.add(flowable)
+            when (adapter) {
+                null -> Single.just(listOf())
+                else -> adapter.getTransactions(fetchData.from, fetchData.limit)
+            }.map {
+                Pair(fetchData.wallet, it)
+            }
         }
 
         Single.zip(flowables) {
-            val res = mutableMapOf<Coin, List<TransactionRecord>>()
-            it.forEach {
-                it as Pair<Coin, List<TransactionRecord>>
-                res[it.first] = it.second
-            }
-            res.toMap()
+            it.map {
+                it as Pair<Wallet, List<TransactionRecord>>
+                it.first to it.second
+            }.toMap()
         }
                 .subscribeOn(Schedulers.io())
                 .observeOn(Schedulers.io())
@@ -99,20 +91,22 @@ class TransactionsInteractor(
                 .let { disposables.add(it) }
     }
 
-    override fun setSelectedCoinCodes(selectedCoins: List<Coin>) {
-        delegate?.onUpdateSelectedCoinCodes(if (selectedCoins.isEmpty()) adapterManager.adapters.map { it.coin } else selectedCoins)
+    override fun setSelectedWallets(selectedWallets: List<Wallet>) {
+        delegate?.onUpdateSelectedWallets(if (selectedWallets.isEmpty()) walletManager.wallets else selectedWallets)
     }
 
     override fun fetchLastBlockHeights() {
         lastBlockHeightDisposables.clear()
 
-        adapterManager.adapters.forEach { adapter ->
-            adapter.lastBlockHeightUpdatedFlowable
-                    .throttleLast(3, TimeUnit.SECONDS)
-                    .subscribeOn(Schedulers.io())
-                    .observeOn(Schedulers.io())
-                    .subscribe { onUpdateLastBlockHeight(adapter) }
-                    .let { lastBlockHeightDisposables.add(it) }
+        walletManager.wallets.forEach { wallet ->
+            adapterManager.getTransactionsAdapterForWallet(wallet)?.let { adapter ->
+                adapter.lastBlockHeightUpdatedFlowable
+                        .throttleLast(3, TimeUnit.SECONDS)
+                        .subscribeOn(Schedulers.io())
+                        .observeOn(Schedulers.io())
+                        .subscribe { onUpdateLastBlockHeight(wallet, adapter) }
+                        .let { lastBlockHeightDisposables.add(it) }
+            }
         }
     }
 
@@ -125,7 +119,7 @@ class TransactionsInteractor(
 
         requestedTimestamps[composedKey] = timestamp
 
-        rateManager.rateValueObservable(coin.code, currencyCode, timestamp)
+        rateManager.historicalRate(coin.code, currencyCode, timestamp)
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe({
@@ -143,26 +137,32 @@ class TransactionsInteractor(
         transactionUpdatesDisposables.clear()
     }
 
-    private fun onUpdateLastBlockHeight(adapter: IAdapter) {
+    private fun onUpdateLastBlockHeight(wallet: Wallet, adapter: ITransactionsAdapter) {
         adapter.lastBlockHeight?.let { lastBlockHeight ->
-            delegate?.onUpdateLastBlockHeight(adapter.coin, lastBlockHeight)
+            delegate?.onUpdateLastBlockHeight(wallet, lastBlockHeight)
         }
     }
 
-    private fun onUpdateCoinCodes() {
+    private fun onUpdateWallets() {
         transactionUpdatesDisposables.clear()
 
-        delegate?.onUpdateCoinsData(adapterManager.adapters.map { Triple(it.coin, it.confirmationsThreshold, it.lastBlockHeight) })
+        val walletsData = mutableListOf<Triple<Wallet, Int, Int?>>()
+        walletManager.wallets.forEach { wallet ->
+            adapterManager.getTransactionsAdapterForWallet(wallet)?.let { adapter ->
+                walletsData.add(Triple(wallet, adapter.confirmationsThreshold, adapter.lastBlockHeight))
 
-        adapterManager.adapters.forEach { adapter ->
-            adapter.transactionRecordsFlowable
-                    .subscribeOn(Schedulers.io())
-                    .observeOn(Schedulers.io())
-                    .subscribe {
-                        delegate?.didUpdateRecords(it, adapter.coin)
-                    }
-                    .let { transactionUpdatesDisposables.add(it) }
+                adapter.transactionRecordsFlowable
+                        .subscribeOn(Schedulers.io())
+                        .observeOn(Schedulers.io())
+                        .subscribe {
+                            delegate?.didUpdateRecords(it, wallet)
+                        }
+                        .let { transactionUpdatesDisposables.add(it) }
+            }
         }
+
+        delegate?.onUpdateWalletsData(walletsData)
+
     }
 
 }

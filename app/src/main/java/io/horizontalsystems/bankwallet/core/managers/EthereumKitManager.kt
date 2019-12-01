@@ -4,7 +4,9 @@ import io.horizontalsystems.bankwallet.R
 import io.horizontalsystems.bankwallet.core.App
 import io.horizontalsystems.bankwallet.core.IAppConfigProvider
 import io.horizontalsystems.bankwallet.core.IEthereumKitManager
-import io.horizontalsystems.bankwallet.entities.AuthData
+import io.horizontalsystems.bankwallet.core.UnsupportedAccountException
+import io.horizontalsystems.bankwallet.entities.AccountType
+import io.horizontalsystems.bankwallet.entities.Wallet
 import io.horizontalsystems.ethereumkit.core.EthereumKit
 
 class EthereumKitManager(appConfig: IAppConfigProvider) : IEthereumKitManager {
@@ -15,16 +17,30 @@ class EthereumKitManager(appConfig: IAppConfigProvider) : IEthereumKitManager {
     private val infuraSecretKey = App.instance.getString(R.string.infuraSecretKey)
     private val etherscanKey = App.instance.getString(R.string.etherscanKey)
 
-    override fun ethereumKit(authData: AuthData): EthereumKit {
-        useCount += 1
+    override val ethereumKit: EthereumKit?
+        get() = kit
 
-        kit?.let { return it }
-        val syncMode = EthereumKit.WordsSyncMode.ApiSyncMode()
-        val infuraCredentials = EthereumKit.InfuraCredentials(infuraProjectId, infuraSecretKey)
-        val networkType = if (testMode) EthereumKit.NetworkType.Ropsten else EthereumKit.NetworkType.MainNet
-        kit = EthereumKit.getInstance(App.instance, authData.words, syncMode, networkType, infuraCredentials, etherscanKey, authData.walletId)
+    override val statusInfo: Map<String, Any>?
+        get() = ethereumKit?.statusInfo()
 
-        return kit!!
+    override fun ethereumKit(wallet: Wallet): EthereumKit {
+        val account = wallet.account
+        if (account.type is AccountType.Mnemonic) {
+            useCount += 1
+
+            kit?.let { return it }
+            val syncMode = EthereumKit.WordsSyncMode.ApiSyncMode()
+            val infuraCredentials = EthereumKit.InfuraCredentials(infuraProjectId, infuraSecretKey)
+            val networkType = if (testMode) EthereumKit.NetworkType.Ropsten else EthereumKit.NetworkType.MainNet
+
+            kit = EthereumKit.getInstance(App.instance, account.type.words, syncMode, networkType, infuraCredentials, etherscanKey, account.id)
+            kit?.start()
+
+            return kit!!
+        }
+
+        throw UnsupportedAccountException()
+
     }
 
     override fun unlink() {

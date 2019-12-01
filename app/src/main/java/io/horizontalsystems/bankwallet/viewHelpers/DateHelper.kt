@@ -11,6 +11,7 @@ object DateHelper {
 
     fun getOnlyTime(date: Date): String = formatDate(date, "HH:mm")
     fun getFullDateWithShortMonth(date: Date): String = formatDate(date, "MMM d, yyyy, HH:mm")
+    fun getFullDateWithShortMonth(timestamp: Long): String = formatDate(Date(timestamp), "MMM d, yyyy, HH:mm")
 
     fun getRelativeDateString(context: Context, date: Date): String {
         val secondsAgo = getSecondsAgo(date).toInt()
@@ -28,14 +29,55 @@ object DateHelper {
         }
     }
 
+    fun getTxDurationString(context: Context, durationInSec: Long): String {
+        return when {
+            durationInSec < 10 -> context.getString(R.string.Duration_instant)
+            durationInSec < 60 -> context.getString(R.string.Duration_Seconds, durationInSec)
+            durationInSec < 60 * 60 -> {
+                val minutes = durationInSec / 60
+                context.getString(R.string.Duration_Minutes, minutes)
+            }
+            else -> {
+                val hours = durationInSec / (60 * 60)
+                context.getString(R.string.Duration_Hours, hours)
+            }
+        }
+    }
+
+    fun getTxDurationIntervalString(context: Context, durationInSec: Long): String {
+        return when {
+            durationInSec < 10 -> context.getString(R.string.Duration_instant)
+            durationInSec < 60 -> {
+                val seconds = context.getString(R.string.Duration_Seconds, durationInSec)
+                context.getString(R.string.Duration_Within, seconds)
+            }
+            durationInSec < 60 * 60 -> {
+                val minutes = context.getString(R.string.Duration_Minutes, durationInSec / 60)
+                context.getString(R.string.Duration_Within, minutes)
+            }
+            else -> {
+                val hours = context.getString(R.string.Duration_Hours, durationInSec / (60 * 60))
+                context.getString(R.string.Duration_Within, hours)
+            }
+        }
+    }
+
     fun getShortDateForTransaction(date: Date): String = if (isThisYear(date)) {
         formatDate(date, "MMM d")
     } else {
         formatDate(date, "MMM dd, yyyy")
     }
 
+    fun getShortMonth(date: Date): String {
+        return formatDate(date, "MMM")
+    }
+
+    fun getShortDayOfWeek(date: Date): String {
+        return formatDate(date, "EEE")
+    }
+
     fun formatDateInUTC(timestamp: Long, dateFormat: String): String {
-        val dateFormatter = SimpleDateFormat(dateFormat, Locale("US"))
+        val dateFormatter = SimpleDateFormat(dateFormat, Locale("EN"))
         dateFormatter.timeZone = TimeZone.getTimeZone("UTC")
         return dateFormatter.format(Date(timestamp * 1000)) //timestamp in seconds
     }

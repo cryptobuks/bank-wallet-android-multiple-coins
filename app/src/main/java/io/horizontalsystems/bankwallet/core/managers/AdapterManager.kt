@@ -2,85 +2,109 @@ package io.horizontalsystems.bankwallet.core.managers
 
 import android.os.Handler
 import android.os.HandlerThread
-import io.horizontalsystems.bankwallet.core.IAdapter
-import io.horizontalsystems.bankwallet.core.IAdapterManager
+import io.horizontalsystems.bankwallet.core.*
 import io.horizontalsystems.bankwallet.core.factories.AdapterFactory
+import io.horizontalsystems.bankwallet.entities.Wallet
+import io.reactivex.BackpressureStrategy
+import io.reactivex.Flowable
 import io.reactivex.disposables.CompositeDisposable
 import io.reactivex.schedulers.Schedulers
 import io.reactivex.subjects.PublishSubject
+import java.util.concurrent.ConcurrentHashMap
 
-class AdapterManager(private val coinManager: CoinManager, private val authManager: AuthManager, private val adapterFactory: AdapterFactory)
+class AdapterManager(
+        private val walletManager: IWalletManager,
+        private val adapterFactory: AdapterFactory,
+        private val ethereumKitManager: IEthereumKitManager,
+        private val eosKitManager: IEosKitManager,
+        private val binanceKitManager: BinanceKitManager)
     : IAdapterManager, HandlerThread("A") {
 
     private val handler: Handler
     private val disposables = CompositeDisposable()
+    private val adaptersReadySubject = PublishSubject.create<Unit>()
+    private val adaptersMap = ConcurrentHashMap<Wallet, IAdapter>()
+
+    override val adaptersReadyObservable: Flowable<Unit> = adaptersReadySubject.toFlowable(BackpressureStrategy.BUFFER)
 
     init {
         start()
         handler = Handler(looper)
 
-        disposables.add(coinManager.coinsUpdatedSignal
+        disposables.add(walletManager.walletsUpdatedObservable
                 .subscribeOn(Schedulers.io())
                 .observeOn(Schedulers.io())
-                .subscribe {
-                    initAdapters()
-                }
-        )
-
-        disposables.add(authManager.authDataSignal
-                .subscribeOn(Schedulers.io())
-                .observeOn(Schedulers.io())
-                .subscribe {
-                    initAdapters()
+                .subscribe { wallets ->
+                    initAdapters(wallets)
                 }
         )
     }
 
-    override var adapters: List<IAdapter> = listOf()
-    override val adaptersUpdatedSignal = PublishSubject.create<Unit>()
-
-    override fun refreshAdapters() {
+    override fun preloadAdapters() {
         handler.post {
-            adapters.forEach { it.refresh() }
+            initAdapters(walletManager.wallets)
         }
     }
 
-    override fun initAdapters() {
+    override fun refresh() {
         handler.post {
-            authManager.authData?.let { authData ->
-                val oldAdapters = adapters.toMutableList()
+            adaptersMap.values.forEach { it.refresh() }
+        }
 
-                adapters = coinManager.coins.mapNotNull { coin ->
-                    var adapter = adapters.find { it.coin.code == coin.code }
-                    if (adapter == null) {
-                        adapter = adapterFactory.adapterForCoin(coin, authData)
-                        adapter?.start()
-                    }
-                    adapter
+        ethereumKitManager.ethereumKit?.refresh()
+        eosKitManager.eosKit?.refresh()
+        binanceKitManager.binanceKit?.refresh()
+    }
+
+    @Synchronized
+    private fun initAdapters(wallets: List<Wallet>) {
+        val disabledWallets = adaptersMap.keys.subtract(wallets)
+
+        wallets.forEach { wallet ->
+            if (!adaptersMap.containsKey(wallet)) {
+                adapterFactory.adapter(wallet)?.let { adapter ->
+                    adaptersMap[wallet] = adapter
+
+                    adapter.start()
                 }
-
-                adaptersUpdatedSignal.onNext(Unit)
-
-                oldAdapters.forEach { oldAdapter ->
-                    if (adapters.none { it.coin.code == oldAdapter.coin.code }) {
-                        oldAdapter.stop()
-                        adapterFactory.unlinkAdapter(oldAdapter)
-                    }
-                }
-
-                oldAdapters.clear()
             }
         }
+
+        adaptersReadySubject.onNext(Unit)
+
+        disabledWallets.forEach { wallet ->
+            adaptersMap.remove(wallet)?.let { disabledAdapter ->
+                disabledAdapter.stop()
+                adapterFactory.unlinkAdapter(disabledAdapter)
+            }
+        }
+
     }
 
     override fun stopKits() {
         handler.post {
-            adapters.forEach {
+            adaptersMap.values.forEach {
                 it.stop()
                 adapterFactory.unlinkAdapter(it)
             }
-            adapters = listOf()
-            adaptersUpdatedSignal.onNext(Unit)
+            adaptersMap.clear()
         }
     }
+
+    override fun getAdapterForWallet(wallet: Wallet): IAdapter? {
+        return adaptersMap[wallet]
+    }
+
+    override fun getTransactionsAdapterForWallet(wallet: Wallet): ITransactionsAdapter? {
+        return adaptersMap[wallet]?.let { it as? ITransactionsAdapter }
+    }
+
+    override fun getBalanceAdapterForWallet(wallet: Wallet): IBalanceAdapter? {
+        return adaptersMap[wallet]?.let { it as? IBalanceAdapter }
+    }
+
+    override fun getReceiveAdapterForWallet(wallet: Wallet): IReceiveAdapter? {
+        return adaptersMap[wallet]?.let { it as? IReceiveAdapter }
+    }
+
 }

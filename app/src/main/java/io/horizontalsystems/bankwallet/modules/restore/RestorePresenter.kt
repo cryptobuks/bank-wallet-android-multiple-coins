@@ -1,34 +1,54 @@
 package io.horizontalsystems.bankwallet.modules.restore
 
-import io.horizontalsystems.bankwallet.R
+import io.horizontalsystems.bankwallet.core.IPredefinedAccountType
+import io.horizontalsystems.bankwallet.core.IPredefinedAccountTypeManager
+import io.horizontalsystems.bankwallet.entities.*
 
 class RestorePresenter(
-        private val interactor: RestoreModule.IInteractor,
-        private val router: RestoreModule.IRouter) : RestoreModule.IViewDelegate, RestoreModule.IInteractorDelegate {
+        private val router: RestoreModule.Router,
+        private val interactor: RestoreModule.Interactor,
+        private val predefinedAccountTypeManager: IPredefinedAccountTypeManager)
+    : RestoreModule.ViewDelegate, RestoreModule.InteractorDelegate {
 
-    var view: RestoreModule.IView? = null
+    var view: RestoreModule.View? = null
 
-    override fun restoreDidClick(words: List<String>) {
-        interactor.validate(words)
+    //  View Delegate
+
+    override var items = listOf<IPredefinedAccountType>()
+
+    override fun viewDidLoad() {
+        items = predefinedAccountTypeManager.allTypes
+        view?.reload(items)
     }
 
-    override fun didFailToValidate(exception: Exception) {
-        view?.showError(R.string.Restore_ValidationFailed)
+    override fun onSelect(accountType: IPredefinedAccountType) {
+        when (accountType) {
+            is UnstoppableAccountType ->
+                router.startRestoreWordsModule(12, accountType.title)
+            is BinanceAccountType -> {
+                router.startRestoreWordsModule(24, accountType.title)
+            }
+            is EosAccountType -> {
+                router.startRestoreEosModule(accountType.title)
+            }
+        }
     }
 
-    override fun didFailToRestore(exception: Exception) {
-        view?.showError(R.string.Restore_RestoreFailed)
+    override fun onRestore(accountType: AccountType, syncMode: SyncMode?) {
+        interactor.restore(accountType, syncMode)
     }
 
-    override fun didValidate() {
-        view?.showConfirmationDialog()
+    override fun onClickClose() {
+        router.close()
     }
 
-    override fun didConfirm(words: List<String>) {
-        interactor.restore(words)
-    }
+    // IInteractor Delegate
 
     override fun didRestore() {
-        router.navigateToSetPin()
+        router.startMainModule()
+    }
+
+    override fun didFailRestore(e: Exception) {
+        view?.showError(e)
     }
 }

@@ -6,6 +6,7 @@ import android.view.View
 import androidx.constraintlayout.widget.ConstraintLayout
 import io.horizontalsystems.bankwallet.R
 import io.horizontalsystems.bankwallet.modules.transactions.TransactionStatus
+import io.horizontalsystems.bankwallet.viewHelpers.LayoutHelper
 import kotlinx.android.synthetic.main.view_transaction_info_item.view.*
 
 class TransactionInfoItemView : ConstraintLayout {
@@ -21,33 +22,52 @@ class TransactionInfoItemView : ConstraintLayout {
     private var attrValueIcon: String? = null
 
 
-    constructor(context: Context) : super(context) {}
+    constructor(context: Context) : super(context)
 
     constructor(context: Context, attrs: AttributeSet) : super(context, attrs) { loadAttributes(attrs) }
 
     constructor(context: Context, attrs: AttributeSet, defStyleAttr: Int) : super(context, attrs, defStyleAttr) { loadAttributes(attrs) }
 
-    fun bind(title: String? = null, value: String? = null) {
+    fun bind(title: String, value: String) {
         txtTitle.text = title
         valueText.text = value
-        valueText.visibility = if (value == null) View.GONE else View.VISIBLE
-        border.visibility = View.VISIBLE
+        valueText.visibility = View.VISIBLE
+
+        invalidate()
     }
 
-    fun bindAddress(title: String? = null, address: String? = null, showBottomBorder: Boolean = false) {
+    fun bindAddress(title: String, address: String) {
         txtTitle.text = title
-        address?.let { addressView.bind(it) }
-        addressView.visibility = if (address == null) View.GONE else View.VISIBLE
-        border.visibility = if (showBottomBorder) View.VISIBLE else View.GONE
+        decoratedText.text = address
+        decoratedText.visibility = View.VISIBLE
 
         invalidate()
     }
 
     fun bindStatus(transactionStatus: TransactionStatus) {
-        transactionStatusView.visibility = View.VISIBLE
-        border.visibility = View.VISIBLE
         txtTitle.setText(R.string.TransactionInfo_Status)
         transactionStatusView.bind(transactionStatus)
+        transactionStatusView.visibility = View.VISIBLE
+
+        invalidate()
+    }
+
+    fun bindHashId(title: String, address: String) {
+        txtTitle.text = title
+        decoratedText.text = address
+        decoratedText.visibility = View.VISIBLE
+        decoratedText.setCompoundDrawablesWithIntrinsicBounds(R.drawable.hash, 0, 0, 0)
+
+        invalidate()
+    }
+
+    fun bindInfo(title: String, info: String) {
+        txtTitle.text = title
+        valueText.text = info
+        valueText.visibility = View.VISIBLE
+        valueText.setCompoundDrawablesWithIntrinsicBounds(0, 0, R.drawable.ic_info, 0)
+        valueText.compoundDrawablePadding = LayoutHelper.dp(16f, context)
+
         invalidate()
     }
 

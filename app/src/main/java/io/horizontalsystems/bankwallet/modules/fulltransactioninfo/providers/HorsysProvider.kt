@@ -4,37 +4,21 @@ import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.annotations.SerializedName
 import io.horizontalsystems.bankwallet.core.utils.EthInputParser
-import io.horizontalsystems.bankwallet.modules.fulltransactioninfo.BitcoinResponse
-import io.horizontalsystems.bankwallet.modules.fulltransactioninfo.EthereumResponse
 import io.horizontalsystems.bankwallet.modules.fulltransactioninfo.FullTransactionInfoModule
+import io.horizontalsystems.bankwallet.modules.fulltransactioninfo.FullTransactionInfoModule.Request.GetRequest
 import java.math.BigInteger
 import java.util.*
 
 class HorsysBitcoinProvider(val testMode: Boolean) : FullTransactionInfoModule.BitcoinForksProvider {
     override val name = "HorizontalSystems.xyz"
 
-    override fun url(hash: String): String {
-        return "${if (testMode) "http://btc-testnet" else "https://btc"}.horizontalsystems.xyz/apg/tx/$hash"
+    override fun url(hash: String): String? {
+        return null
     }
 
-    override fun apiUrl(hash: String): String {
-        return "${if (testMode) "http://btc-testnet" else "https://btc"}.horizontalsystems.xyz/apg/tx/$hash"
-    }
-
-    override fun convert(json: JsonObject): BitcoinResponse {
-        return Gson().fromJson(json, HorsysBTCResponse::class.java)
-    }
-}
-
-class HorsysBitcoinCashProvider(val testMode: Boolean) : FullTransactionInfoModule.BitcoinForksProvider {
-    override val name: String = "HorizontalSystems.xyz"
-
-    override fun url(hash: String): String {
-        return "${if (testMode) "http://bch-testnet" else "https://bch"}.horizontalsystems.xyz/apg/tx/$hash"
-    }
-
-    override fun apiUrl(hash: String): String {
-        return "${if (testMode) "http://bch-testnet" else "https://bch"}.horizontalsystems.xyz/apg/tx/$hash"
+    override fun apiRequest(hash: String): FullTransactionInfoModule.Request {
+        val url = "${if (testMode) "http://btc-testnet" else "https://btc"}.horizontalsystems.xyz/apg/tx/$hash"
+        return GetRequest(url)
     }
 
     override fun convert(json: JsonObject): BitcoinResponse {
@@ -49,25 +33,28 @@ class HorsysDashProvider(val testMode: Boolean) : FullTransactionInfoModule.Bitc
         return "${if (testMode) "http://dash-testnet" else "https://dash"}.horizontalsystems.xyz/insight/tx/$hash"
     }
 
-    override fun apiUrl(hash: String): String {
-        return "${if (testMode) "http://dash-testnet" else "https://dash"}.horizontalsystems.xyz/apg/tx/$hash"
+    override fun apiRequest(hash: String): FullTransactionInfoModule.Request {
+        val url = "${if (testMode) "http://dash-testnet" else "https://dash"}.horizontalsystems.xyz/apg/tx/$hash"
+        return GetRequest(url)
     }
 
     override fun convert(json: JsonObject): BitcoinResponse {
-        return Gson().fromJson(json, InsightDashResponse::class.java)
+        return Gson().fromJson(json, InsightResponse::class.java)
     }
 }
 
 class HorsysEthereumProvider(val testMode: Boolean) : FullTransactionInfoModule.EthereumForksProvider {
 
-    private val url = if (testMode)  "http://eth-ropsten.horizontalsystems.xyz/tx/" else "https://eth.horizontalsystems.xyz/tx/"
-    private val apiUrl = if (testMode)  "http://eth-ropsten.horizontalsystems.xyz/api?module=transaction&action=gettxinfo&txhash=" else "https://eth.horizontalsystems.xyz/api?module=transaction&action=gettxinfo&txhash="
+    private val url = if (testMode) "http://eth-ropsten.horizontalsystems.xyz/tx/" else "https://eth.horizontalsystems.xyz/tx/"
+    private val apiUrl = if (testMode) "http://eth-ropsten.horizontalsystems.xyz/api?module=transaction&action=gettxinfo&txhash=" else "https://eth.horizontalsystems.xyz/api?module=transaction&action=gettxinfo&txhash="
 
     override val name: String = "HorizontalSystems.xyz"
 
     override fun url(hash: String): String = "$url$hash"
 
-    override fun apiUrl(hash: String): String = "$apiUrl$hash"
+    override fun apiRequest(hash: String): FullTransactionInfoModule.Request {
+        return GetRequest("$apiUrl$hash")
+    }
 
     override fun convert(json: JsonObject): EthereumResponse {
         return Gson().fromJson(json["result"], HorsysETHResponse::class.java)
@@ -120,7 +107,7 @@ class HorsysETHResponse(
 
     override val contractAddress: String? get() = if (input != "0x") receiver else null
     override val size: Int? get() = null
-    override val date: Date? get() = time?.let{ Date(it.toLong() * 1000) }
+    override val date: Date? get() = time?.let { Date(it.toLong() * 1000) }
     override val confirmations: Int? get() = confirmationsString?.toIntOrNull()
     override val height: String get() = Integer.parseInt(blockNumber, 16).toString()
     override val gasPrice: String? get() = null

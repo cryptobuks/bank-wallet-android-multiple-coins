@@ -20,18 +20,42 @@ class ShadowlessToolbarView : ConstraintLayout {
     constructor(context: Context, attrs: AttributeSet, defStyleAttr: Int) : super(context, attrs, defStyleAttr)
 
 
-    fun bind(title: String, leftBtnItem: TopMenuItem? = null, rightBtnItem: TopMenuItem? = null) {
-        toolbarTitle.text = title
-        leftBtnItem?.let { item ->
-            leftButton.visibility = View.VISIBLE
-            leftButton.setImageResource(item.icon)
-            leftButton?.setOnClickListener { item.onClick.invoke() }
-        }
+    fun bind(title: String?, leftBtnItem: TopMenuItem? = null, rightBtnItem: TopMenuItem? = null) {
+        title?.let { toolbarTitle.text = it }
 
-        rightBtnItem?.let { item ->
-            rightButton.visibility = View.VISIBLE
-            rightButton.setImageResource(item.icon)
-            rightButton?.setOnClickListener { item.onClick.invoke() }
+        bindLeftButton(leftBtnItem)
+
+        rightBtnItem?.let { rightItem ->
+            rightItem.icon?.let { imageRes ->
+                rightImageButton.setImageResource(imageRes)
+                rightImageButton.visibility = View.VISIBLE
+                rightItem.onClick?.let { click -> rightImageButton?.setOnClickListener { click.invoke() } }
+            } ?:run {
+                rightItem.text?.let { textRes ->
+                    rightTextButton.visibility = View.VISIBLE
+                    rightTextButton.setText(textRes)
+                    rightItem.onClick?.let { click -> rightTextButton?.setOnClickListener { click.invoke() } }
+                }
+            }
+        }
+    }
+
+    fun bindLeftButton(leftBtnItem: TopMenuItem? = null) {
+        leftTextButton.visibility = View.GONE
+        leftImageButton.visibility = View.GONE
+
+        leftBtnItem?.let { leftItem ->
+            leftItem.icon?.let {
+                leftImageButton.setImageResource(it)
+                leftImageButton.visibility = View.VISIBLE
+                leftItem.onClick?.let { click -> leftImageButton?.setOnClickListener { click.invoke() } }
+            } ?:run {
+                leftItem.text?.let {
+                    leftTextButton.visibility = View.VISIBLE
+                    leftTextButton.setText(it)
+                    leftItem.onClick?.let { click -> leftTextButton?.setOnClickListener { click.invoke() } }
+                }
+            }
         }
     }
 
@@ -39,12 +63,6 @@ class ShadowlessToolbarView : ConstraintLayout {
         toolbarTitle.text = title
     }
 
-    fun bindLeftButton(leftBtnItem: TopMenuItem) {
-        leftButton.visibility = View.VISIBLE
-        leftButton.setImageResource(leftBtnItem.icon)
-        leftButton?.setOnClickListener { leftBtnItem.onClick.invoke() }
-    }
-
 }
 
-data class TopMenuItem(val icon: Int, val onClick: (() -> (Unit)))
+data class TopMenuItem(val icon: Int? = null, val text: Int? = null, val onClick: (() -> Unit)? = null)

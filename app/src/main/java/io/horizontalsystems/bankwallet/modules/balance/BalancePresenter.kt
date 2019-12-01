@@ -1,138 +1,261 @@
 package io.horizontalsystems.bankwallet.modules.balance
 
 import io.horizontalsystems.bankwallet.core.AdapterState
-import io.horizontalsystems.bankwallet.core.IAdapter
+import io.horizontalsystems.bankwallet.core.IPredefinedAccountTypeManager
+import io.horizontalsystems.bankwallet.entities.Account
 import io.horizontalsystems.bankwallet.entities.Currency
-import io.horizontalsystems.bankwallet.entities.Rate
-import io.horizontalsystems.bankwallet.modules.transactions.CoinCode
-import io.reactivex.Flowable
-import io.reactivex.android.schedulers.AndroidSchedulers
-import io.reactivex.disposables.CompositeDisposable
-import io.reactivex.schedulers.Schedulers
-import io.reactivex.subjects.PublishSubject
+import io.horizontalsystems.bankwallet.entities.Wallet
+import io.horizontalsystems.bankwallet.modules.balance.BalanceModule.BalanceItem
+import io.horizontalsystems.bankwallet.modules.balance.BalanceModule.ChartInfoState
+import io.horizontalsystems.xrateskit.entities.ChartInfo
+import io.horizontalsystems.xrateskit.entities.MarketInfo
 import java.math.BigDecimal
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.Executors
 
 class BalancePresenter(
-        private var interactor: BalanceModule.IInteractor,
+        private val interactor: BalanceModule.IInteractor,
         private val router: BalanceModule.IRouter,
-        private val dataSource: BalanceModule.BalanceItemDataSource,
-        private val factory: BalanceViewItemFactory) : BalanceModule.IViewDelegate, BalanceModule.IInteractorDelegate {
+        private val sorter: BalanceModule.IBalanceSorter,
+        private val predefinedAccountTypeManager: IPredefinedAccountTypeManager,
+        private val factory: BalanceViewItemFactory,
+        private val sortingOnThreshold: Int = 5
+) : BalanceModule.IViewDelegate, BalanceModule.IInteractorDelegate {
 
     var view: BalanceModule.IView? = null
-    private val disposables = CompositeDisposable()
-    private var flushSubject = PublishSubject.create<Unit>()
 
-    //
-    // BalanceModule.IViewDelegate
-    //
-    override val itemsCount: Int
-        get() = dataSource.count
+    private val executor = Executors.newSingleThreadExecutor()
 
+    private var items = listOf<BalanceItem>()
+    private var viewItems = mutableListOf<BalanceViewItem>()
+    private var currency: Currency = interactor.baseCurrency
+    private var sortType: BalanceSortType = interactor.sortType
+    private var accountToBackup: Account? = null
 
-    override fun viewDidLoad() {
-        interactor.initAdapters()
+    // IViewDelegate
 
-        flushSubject
-                .debounce(1, TimeUnit.SECONDS)
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .doOnNext { updateViewItems() }
-                .subscribe()?.let { disposables.add(it) }
+    override fun onLoad() {
+        executor.submit {
+            interactor.subscribeToWallets()
+            interactor.subscribeToBaseCurrency()
 
-        Flowable.interval(1, TimeUnit.MINUTES)
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe {
-                    dataSource.items.forEach { item ->
-                        item.rate?.let { rate ->
-                            didUpdateRate(rate)
-                        }
-                    }
-                }?.let { disposables.add(it) }
+            handleUpdate(interactor.wallets)
+
+            updateViewItems()
+            updateHeaderViewItem()
+        }
     }
 
-    override fun getViewItem(position: Int) =
-            factory.createViewItem(dataSource.getItem(position), dataSource.currency)
-
-    override fun getHeaderViewItem() =
-            factory.createHeaderViewItem(dataSource.items, dataSource.currency)
-
-    override fun refresh() {
-        interactor.refresh()
+    override fun onRefresh() {
+        executor.submit {
+            interactor.refresh()
+        }
     }
 
-    override fun onReceive(position: Int) {
-        router.openReceiveDialog(dataSource.getItem(position).coin.code)
+    override fun onReceive(viewItem: BalanceViewItem) {
+        val wallet = viewItem.wallet
+
+        if (wallet.account.isBackedUp) {
+            router.openReceive(wallet)
+        } else {
+            interactor.predefinedAccountType(wallet)?.let { predefinedAccountType ->
+                accountToBackup = wallet.account
+                view?.showBackupRequired(wallet.coin, predefinedAccountType)
+            }
+        }
     }
 
-    override fun onPay(position: Int) {
-        router.openSendDialog(dataSource.getItem(position).coin.code)
+    override fun onPay(viewItem: BalanceViewItem) {
+        router.openSend(viewItem.wallet)
+    }
+
+    override fun onChart(viewItem: BalanceViewItem) {
+        router.openChart(viewItem.wallet.coin)
+    }
+
+    override fun onAddCoinClick() {
+        router.openManageCoins()
+    }
+
+    override fun onSortClick() {
+        router.openSortTypeDialog(sortType)
+    }
+
+    override fun onSortTypeChange(sortType: BalanceSortType) {
+        executor.submit {
+            this.sortType = sortType
+            interactor.saveSortType(sortType)
+
+            updateViewItems()
+        }
+    }
+
+    override fun onBackupClick() {
+        accountToBackup?.let { account ->
+            val accountType = predefinedAccountTypeManager.allTypes.first { it.supports(account.type) }
+            router.openBackup(account, accountType.coinCodes)
+            accountToBackup = null
+        }
     }
 
     override fun onClear() {
         interactor.clear()
-        disposables.clear()
     }
 
-    //
-    // BalanceModule.IInteractorDelegate
-    //
-    override fun didUpdateAdapters(adapters: List<IAdapter>) {
-        dataSource.reset(adapters.map { BalanceModule.BalanceItem(it.coin, it.balance, it.state) })
-        dataSource.currency?.let {
-            interactor.fetchRates(it.code, dataSource.coinCodes)
-        }
+    // IInteractorDelegate
 
-        view?.reload()
+    override fun didUpdateWallets(wallets: List<Wallet>) {
+        executor.submit {
+            handleUpdate(wallets)
+
+            updateViewItems()
+            updateHeaderViewItem()
+        }
+    }
+
+    override fun didPrepareAdapters() {
+        executor.submit {
+            handleAdaptersReady()
+
+            updateViewItems()
+            updateHeaderViewItem()
+        }
+    }
+
+    override fun didUpdateBalance(wallet: Wallet, balance: BigDecimal, balanceLocked: BigDecimal) {
+        executor.submit {
+            updateItem(wallet) { item ->
+                item.balance = balance
+                item.balanceLocked = balanceLocked
+            }
+
+            updateHeaderViewItem()
+        }
+    }
+
+    override fun didUpdateState(wallet: Wallet, state: AdapterState) {
+        executor.submit {
+            updateItem(wallet) { item ->
+                item.state = state
+            }
+
+            updateHeaderViewItem()
+        }
     }
 
     override fun didUpdateCurrency(currency: Currency) {
-        dataSource.currency = currency
-        dataSource.clearRates()
-        interactor.fetchRates(currency.code, dataSource.coinCodes)
-        view?.reload()
+        executor.submit {
+            this.currency = currency
+
+            handleRates()
+            handleStats()
+
+            updateViewItems()
+            updateHeaderViewItem()
+        }
     }
 
-    override fun didUpdateBalance(coinCode: CoinCode, balance: BigDecimal) {
-        val position = dataSource.getPosition(coinCode)
-        dataSource.setBalance(position, balance)
-        updateByPosition(position)
-        view?.updateHeader()
+    override fun didUpdateMarketInfo(marketInfo: Map<String, MarketInfo>) {
+        executor.submit {
+            items.forEachIndexed { index, item ->
+                marketInfo[item.wallet.coin.code]?.let {
+                    item.marketInfo = it
+                    viewItems[index] = factory.viewItem(item, currency)
+                }
+            }
+            view?.set(viewItems)
+            updateHeaderViewItem()
+        }
     }
 
-    override fun didUpdateState(coinCode: String, state: AdapterState) {
-        val position = dataSource.getPosition(coinCode)
-        dataSource.setState(position, state)
-        updateByPosition(position)
-        view?.updateHeader()
+    override fun didUpdateChartInfo(chartInfo: ChartInfo, coinCode: String) {
+        executor.submit {
+            updateChartInfo(ChartInfoState.Loaded(chartInfo), coinCode)
+        }
     }
 
-    override fun didUpdateRate(rate: Rate) {
-        val position = dataSource.getPosition(rate.coinCode)
-        dataSource.setRate(position, rate)
-        updateByPosition(position)
-        view?.updateHeader()
+    override fun didFailChartInfo(coinCode: String) {
+        executor.submit {
+            updateChartInfo(ChartInfoState.Failed, coinCode)
+        }
     }
 
     override fun didRefresh() {
         view?.didRefresh()
     }
 
-    override fun openManageCoins() {
-        router.openManageCoins()
+    private fun handleUpdate(wallets: List<Wallet>) {
+        items = wallets.map { BalanceItem(it) }
+
+        handleAdaptersReady()
+        handleRates()
+        handleStats()
+
+        view?.set(sortIsOn = items.size >= sortingOnThreshold)
+    }
+
+    private fun handleAdaptersReady() {
+        interactor.subscribeToAdapters(items.map { it.wallet })
+
+        items.forEach { item ->
+            item.balance = interactor.balance(item.wallet)
+            item.balanceLocked = interactor.balanceLocked(item.wallet)
+            item.state = interactor.state(item.wallet)
+        }
+    }
+
+    private fun handleRates() {
+        interactor.subscribeToMarketInfo(currency.code)
+
+        items.forEach { item ->
+            item.marketInfo = interactor.marketInfo(item.wallet.coin.code, currency.code)
+        }
+    }
+
+    private fun handleStats() {
+        interactor.subscribeToChartInfo(items.map { it.wallet.coin.code }, currency.code)
+
+        items.forEach { item ->
+            item.chartInfoState =
+                    interactor.chartInfo(item.wallet.coin.code, currency.code)?.let {
+                        ChartInfoState.Loaded(it)
+                    } ?: ChartInfoState.Loading
+        }
+    }
+
+    private fun updateItem(wallet: Wallet, updateBlock: (BalanceItem) -> Unit) {
+        val index = items.indexOfFirst { it.wallet == wallet }
+        if (index == -1)
+            return
+
+        val item = items[index]
+        updateBlock(item)
+        viewItems[index] = factory.viewItem(item, currency)
+
+        view?.set(viewItems)
     }
 
     private fun updateViewItems() {
-        dataSource.getUpdatedPositions().forEach {
-            view?.updateItem(it)
-        }
-        dataSource.clearUpdatedPositions()
+        items = sorter.sort(items, sortType)
+
+        viewItems = items.map { factory.viewItem(it, currency) }.toMutableList()
+
+        view?.set(viewItems)
     }
 
-    private fun updateByPosition(position: Int) {
-        dataSource.addUpdatedPosition(position)
-        flushSubject.onNext(Unit)
+    private fun updateHeaderViewItem() {
+        val headerViewItem = factory.headerViewItem(items, currency)
+        view?.set(headerViewItem)
     }
+
+    private fun updateChartInfo(chartInfoState: ChartInfoState, coinCode: String) {
+        items.forEachIndexed { index, item ->
+            if (item.wallet.coin.code == coinCode) {
+                item.chartInfoState = chartInfoState
+                viewItems[index] = factory.viewItem(item, currency)
+            }
+        }
+        view?.set(viewItems)
+    }
+
 
 }

@@ -13,9 +13,9 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import java.text.NumberFormat
 import java.util.*
+import kotlin.math.abs
 
-
-class NumberFormatter(private val languageManager: ILanguageManager): IAppNumberFormatter {
+class NumberFormatter(private val languageManager: ILanguageManager) : IAppNumberFormatter {
 
     private val COIN_BIG_NUMBER_EDGE = "0.01".toBigDecimal()
     private val FIAT_BIG_NUMBER_EDGE = "1000".toBigDecimal()
@@ -24,21 +24,22 @@ class NumberFormatter(private val languageManager: ILanguageManager): IAppNumber
 
     private var formatters: MutableMap<String, NumberFormat> = mutableMapOf()
 
-    override fun format(coinValue: CoinValue, explicitSign: Boolean, realNumber: Boolean): String? {
+    override fun format(coinValue: CoinValue, explicitSign: Boolean, realNumber: Boolean, trimmable: Boolean): String? {
         var value = coinValue.value.abs()
 
-        val customFormatter = getFormatter(languageManager.currentLanguage) ?: return null
+        val customFormatter = getFormatter(languageManager.currentLocale) ?: return null
 
         when {
+            trimmable -> customFormatter.maximumFractionDigits = 0
             !realNumber && value > COIN_BIG_NUMBER_EDGE -> customFormatter.maximumFractionDigits = 4
             value.compareTo(BigDecimal.ZERO) == 0 -> customFormatter.maximumFractionDigits = 0
             else -> customFormatter.maximumFractionDigits = 8
         }
         value = value.stripTrailingZeros()
         val formatted = customFormatter.format(value)
-        var result = "$formatted ${coinValue.coinCode}"
+        var result = "$formatted ${coinValue.coin.code}"
 
-        if (explicitSign) {
+        if (explicitSign && coinValue.value.toLong() != 0L) {
             val sign = if (coinValue.value < BigDecimal.ZERO) "-" else "+"
             result = "$sign $result"
         }
@@ -59,7 +60,7 @@ class NumberFormatter(private val languageManager: ILanguageManager): IAppNumber
         val absValue = currencyValue.value.abs()
         var value = absValue
 
-        val customFormatter = getFormatter(languageManager.currentLanguage) ?: return null
+        val customFormatter = getFormatter(languageManager.currentLocale) ?: return null
 
         when {
             value.compareTo(BigDecimal.ZERO) == 0 -> {
@@ -73,15 +74,11 @@ class NumberFormatter(private val languageManager: ILanguageManager): IAppNumber
                 value = BigDecimal("0.01")
                 customFormatter.maximumFractionDigits = 2
             }
+            value >= FIAT_BIG_NUMBER_EDGE && trimmable -> {
+                customFormatter.maximumFractionDigits = 0
+            }
             else -> {
-                when {
-                    trimmable && (value >= FIAT_BIG_NUMBER_EDGE) -> {
-                        customFormatter.maximumFractionDigits = 0
-                    }
-                    else -> {
-                        customFormatter.maximumFractionDigits = 2
-                    }
-                }
+                customFormatter.maximumFractionDigits = 2
             }
         }
 
@@ -101,33 +98,43 @@ class NumberFormatter(private val languageManager: ILanguageManager): IAppNumber
     }
 
     override fun formatForTransactions(currencyValue: CurrencyValue, isIncoming: Boolean): SpannableString {
-        val spannable = SpannableString(format(currencyValue, showNegativeSign = true, trimmable = true, canUseLessSymbol = true))
+        val spannable = SpannableString(format(currencyValue, showNegativeSign = false, trimmable = true, canUseLessSymbol = true))
 
-        //set color
-        val amountTextColor = if (isIncoming) R.color.green_crypto else R.color.yellow_crypto
+        //  set color
+        val amountTextColor = if (isIncoming) R.color.green_d else R.color.yellow_d
         val color = ContextCompat.getColor(App.instance, amountTextColor)
 
         spannable.setSpan(ForegroundColorSpan(color), 0, spannable.length, 0)
         return spannable
     }
 
-    override fun format(value: Double): String {
-        val customFormatter = getFormatter(languageManager.currentLanguage)
-        customFormatter?.maximumFractionDigits = 8
+    override fun format(value: Double, showSign: Boolean, precision: Int): String {
+        val customFormatter = getFormatter(languageManager.currentLocale)?.also {
+            it.maximumFractionDigits = precision
+        }
+
         if (value == 0.0) {
             customFormatter?.maximumFractionDigits = 0
         }
 
-        return customFormatter?.format(value) ?: "0"
+        var format = customFormatter?.format(abs(value)) ?: "0"
+        if (showSign) {
+            format = if (value < 0.0)
+                "-$format" else {
+                "+$format"
+            }
+        }
+
+        return format
     }
 
     private fun getFormatter(locale: Locale): NumberFormat? {
         return formatters[locale.language] ?: run {
-            val newFormatter = NumberFormat.getInstance(locale)
-            newFormatter.roundingMode = RoundingMode.HALF_EVEN
+            val newFormatter = NumberFormat.getInstance(locale).apply {
+                roundingMode = RoundingMode.HALF_EVEN
+            }
             formatters[locale.language] = newFormatter
             return newFormatter
         }
     }
-
 }

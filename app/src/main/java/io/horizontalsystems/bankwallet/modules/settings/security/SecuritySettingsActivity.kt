@@ -7,136 +7,105 @@ import android.widget.CompoundButton
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProviders
 import io.horizontalsystems.bankwallet.BaseActivity
-import io.horizontalsystems.bankwallet.LauncherActivity
 import io.horizontalsystems.bankwallet.R
-import io.horizontalsystems.bankwallet.core.App
-import io.horizontalsystems.bankwallet.entities.BiometryType
-import io.horizontalsystems.bankwallet.lib.AlertDialogFragment
-import io.horizontalsystems.bankwallet.modules.backup.BackupModule
-import io.horizontalsystems.bankwallet.modules.backup.BackupPresenter
 import io.horizontalsystems.bankwallet.modules.pin.PinModule
-import io.horizontalsystems.bankwallet.modules.restore.RestoreModule
-import io.horizontalsystems.bankwallet.ui.dialogs.BottomButtonColor
-import io.horizontalsystems.bankwallet.ui.dialogs.BottomConfirmAlert
+import io.horizontalsystems.bankwallet.modules.settings.managekeys.ManageKeysModule
 import io.horizontalsystems.bankwallet.ui.extensions.TopMenuItem
-import io.horizontalsystems.bankwallet.viewHelpers.LayoutHelper
 import kotlinx.android.synthetic.main.activity_settings_security.*
 
-class SecuritySettingsActivity : BaseActivity(), BottomConfirmAlert.Listener {
+class SecuritySettingsActivity : BaseActivity() {
 
     private lateinit var viewModel: SecuritySettingsViewModel
 
-    enum class Action {
-        OPEN_RESTORE,
-        CLEAR_WALLETS
-    }
-
-    private var selectedAction: Action? = null
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_settings_security)
 
         viewModel = ViewModelProviders.of(this).get(SecuritySettingsViewModel::class.java)
         viewModel.init()
 
-        setContentView(R.layout.activity_settings_security)
-
-        shadowlessToolbar.bind(
-                title = getString(R.string.Settings_SecurityCenter),
-                leftBtnItem = TopMenuItem(R.drawable.back, { onBackPressed() })
-        )
+        shadowlessToolbar.bind(getString(R.string.Settings_SecurityCenter), TopMenuItem(R.drawable.back, onClick = { onBackPressed() }))
 
         changePin.setOnClickListener { viewModel.delegate.didTapEditPin() }
 
-        backupWallet.setOnClickListener { viewModel.delegate.didTapBackupWallet() }
+        manageKeys.setOnClickListener { viewModel.delegate.didTapManageKeys() }
 
-
-        importWallet.setOnClickListener {
-            selectedAction = Action.OPEN_RESTORE
-            val confirmationList = mutableListOf(
-                    R.string.SettingsSecurity_ImportWalletConfirmation_1,
-                    R.string.SettingsSecurity_ImportWalletConfirmation_2
-            )
-            BottomConfirmAlert.show(this, confirmationList, this)
+        fingerprint.switchOnCheckedChangeListener = CompoundButton.OnCheckedChangeListener { _, isChecked ->
+            viewModel.delegate.didSwitchBiometricEnabled(isChecked)
         }
 
-        unlink.setOnClickListener {
-            selectedAction = Action.CLEAR_WALLETS
-            val confirmationList = mutableListOf(
-                    R.string.SettingsSecurity_ImportWalletConfirmation_1,
-                    R.string.SettingsSecurity_ImportWalletConfirmation_2
-            )
-            BottomConfirmAlert.show(this, confirmationList, this, BottomButtonColor.RED)
+        fingerprint.setOnClickListener {
+            fingerprint.switchToggle()
         }
 
-        unlink.titleTextColor = R.color.red_warning
+        enablePin.switchOnCheckedChangeListener = CompoundButton.OnCheckedChangeListener { _, isChecked ->
+            viewModel.delegate.didSwitchPinSet(isChecked)
+        }
 
+        enablePin.setOnClickListener {
+            enablePin.switchToggle()
+        }
 
-        viewModel.backedUpLiveData.observe(this, Observer { wordListBackedUp ->
-            wordListBackedUp?.let {
-                backupWallet.badge = LayoutHelper.getInfoBadge(it, resources)
-            }
+        //  Handling view model live events
+
+        viewModel.backupAlertVisibleLiveData.observe(this, Observer { alert ->
+            manageKeys.badgeImage = alert
+        })
+
+        viewModel.openManageKeysLiveEvent.observe(this, Observer {
+            ManageKeysModule.start(this)
+        })
+
+        viewModel.pinSetLiveData.observe(this, Observer { pinEnabled ->
+            enablePin.switchIsChecked = pinEnabled
+        })
+
+        viewModel.editPinVisibleLiveData.observe(this, Observer { pinEnabled ->
+            changePin.visibility = if (pinEnabled) View.VISIBLE else View.GONE
+            enablePin.bottomBorder = !pinEnabled
         })
 
         viewModel.openEditPinLiveEvent.observe(this, Observer {
             PinModule.startForEditPin(this)
         })
 
-        viewModel.openRestoreWalletLiveEvent.observe(this, Observer {
-            RestoreModule.start(this)
+        viewModel.openSetPinLiveEvent.observe(this, Observer {
+            PinModule.startForSetPin(this, REQUEST_CODE_SET_PIN)
         })
 
-        viewModel.openBackupWalletLiveEvent.observe(this, Observer {
-            BackupModule.start(this@SecuritySettingsActivity, BackupPresenter.DismissMode.DISMISS_SELF)
+        viewModel.openUnlockPinLiveEvent.observe(this, Observer {
+            PinModule.startForUnlock(this, REQUEST_CODE_UNLOCK_PIN_TO_DISABLE_PIN)
         })
 
-        viewModel.biometryTypeLiveDate.observe(this, Observer { biometryType ->
-            fingerprint.visibility = if (biometryType == BiometryType.FINGER) View.VISIBLE else View.GONE
+        viewModel.biometricSettingsVisibleLiveData.observe(this, Observer { enabled ->
+            fingerprint.visibility = if (enabled) View.VISIBLE else View.GONE
         })
 
-        viewModel.biometricUnlockOnLiveDate.observe(this, Observer { switchIsOn ->
-            switchIsOn?.let { switchOn ->
-                fingerprint.apply {
-                    switchIsChecked = switchOn
-                    setOnClickListener {
-                        if (App.localStorage.isBiometricOn || fingerprintCanBeEnabled()) {
-                            switchToggle()
-                        }
-                    }
+        viewModel.biometricEnabledLiveData.observe(this, Observer {
+            fingerprint.switchIsChecked = it
+        })
+    }
 
-                    switchOnCheckedChangeListener = CompoundButton.OnCheckedChangeListener { _, isChecked ->
-                        App.localStorage.isBiometricOn = isChecked
-                    }
-                }
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == REQUEST_CODE_SET_PIN) {
+            when (resultCode) {
+                PinModule.RESULT_OK -> viewModel.delegate.didSetPin()
+                PinModule.RESULT_CANCELLED -> viewModel.delegate.didCancelSetPin()
             }
-        })
+        }
 
-        viewModel.reloadAppLiveEvent.observe(this, Observer {
-            val intent = Intent(this, LauncherActivity::class.java)
-            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            startActivity(intent)
-        })
-
-        viewModel.showPinUnlockLiveEvent.observe(this, Observer {
-            PinModule.startForUnlock(true)
-        })
-
-    }
-
-    override fun onConfirmationSuccess() {
-        when (selectedAction) {
-            Action.OPEN_RESTORE -> viewModel.delegate.didTapRestoreWallet()
-            Action.CLEAR_WALLETS -> viewModel.delegate.confirmedUnlinkWallet()
+        if (requestCode == REQUEST_CODE_UNLOCK_PIN_TO_DISABLE_PIN) {
+            when (resultCode) {
+                PinModule.RESULT_OK -> viewModel.delegate.didUnlockPinToDisablePin()
+                PinModule.RESULT_CANCELLED -> viewModel.delegate.didCancelUnlockPinToDisablePin()
+            }
         }
     }
 
-    private fun fingerprintCanBeEnabled(): Boolean {
-        val touchSensorCanBeUsed = App.systemInfoManager.touchSensorCanBeUsed()
-        if (!touchSensorCanBeUsed) {
-            AlertDialogFragment.newInstance(R.string.Settings_Error_FingerprintNotEnabled, R.string.Settings_Error_NoFingerprintAddedYet, R.string.Alert_Ok)
-                    .show(this.supportFragmentManager, "fingerprint_not_enabled_alert")
-            return false
-        }
-        return true
+    companion object {
+        const val REQUEST_CODE_SET_PIN = 1
+        const val REQUEST_CODE_UNLOCK_PIN_TO_DISABLE_PIN = 2
     }
 }

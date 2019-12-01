@@ -1,6 +1,7 @@
 package io.horizontalsystems.bankwallet.modules.transactions.transactionInfo
 
-import io.horizontalsystems.bankwallet.entities.Coin
+import io.horizontalsystems.bankwallet.entities.Wallet
+import java.util.*
 
 class TransactionInfoPresenter(
         private val interactor: TransactionInfoModule.Interactor,
@@ -9,15 +10,19 @@ class TransactionInfoPresenter(
 
     var view: TransactionInfoModule.View? = null
 
-    // ViewDelegate methods
+    // IViewDelegate methods
 
     override fun onCopy(value: String) {
         interactor.onCopy(value)
         view?.showCopied()
     }
 
-    override fun openFullInfo(transactionHash: String, coin: Coin) {
-        router.openFullInfo(transactionHash, coin)
+    override fun openFullInfo(transactionHash: String, wallet: Wallet) {
+        router.openFullInfo(transactionHash, wallet)
+    }
+
+    override fun onClickLockInfo(lockDate: Date) {
+        router.openLockInfo(lockDate)
     }
 
 }

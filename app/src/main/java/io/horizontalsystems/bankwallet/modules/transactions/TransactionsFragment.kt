@@ -4,18 +4,15 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.view.ViewTreeObserver
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProviders
-import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.RecyclerView.*
-import com.google.android.material.appbar.AppBarLayout
 import io.horizontalsystems.bankwallet.R
 import io.horizontalsystems.bankwallet.core.App
 import io.horizontalsystems.bankwallet.core.setOnSingleClickListener
-import io.horizontalsystems.bankwallet.entities.Coin
+import io.horizontalsystems.bankwallet.entities.Wallet
 import io.horizontalsystems.bankwallet.modules.main.MainActivity
 import io.horizontalsystems.bankwallet.ui.extensions.NpaLinearLayoutManager
 import io.horizontalsystems.bankwallet.viewHelpers.DateHelper
@@ -23,6 +20,7 @@ import kotlinx.android.extensions.LayoutContainer
 import kotlinx.android.synthetic.main.fragment_transactions.*
 import kotlinx.android.synthetic.main.view_holder_filter.*
 import kotlinx.android.synthetic.main.view_holder_transaction.*
+import java.util.logging.Logger
 
 class TransactionsFragment : Fragment(), TransactionsAdapter.Listener, FilterAdapter.Listener {
 
@@ -41,7 +39,7 @@ class TransactionsFragment : Fragment(), TransactionsAdapter.Listener, FilterAda
         viewModel.init()
 
         transactionsAdapter.viewModel = viewModel
-        toolbarTitle.setText(R.string.Transactions_Title)
+        recyclerTags.adapter = filterAdapter
 
         recyclerTransactions.setHasFixedSize(true)
         recyclerTransactions.adapter = transactionsAdapter
@@ -52,9 +50,6 @@ class TransactionsFragment : Fragment(), TransactionsAdapter.Listener, FilterAda
             }
         })
 
-        recyclerTags.adapter = filterAdapter
-        recyclerTags.layoutManager = LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false)
-
         viewModel.filterItems.observe(viewLifecycleOwner, Observer { filters ->
             filters?.let {
                 filterAdapter.setFilters(it)
@@ -63,30 +58,24 @@ class TransactionsFragment : Fragment(), TransactionsAdapter.Listener, FilterAda
 
         viewModel.transactionViewItemLiveEvent.observe(viewLifecycleOwner, Observer { transactionViewItem ->
             transactionViewItem?.let {
-                (activity as? MainActivity)?.setTransactionInfoItem(it)
+                (activity as? MainActivity)?.openTransactionInfo(it)
             }
         })
 
         viewModel.reloadLiveEvent.observe(viewLifecycleOwner, Observer {
             transactionsAdapter.notifyDataSetChanged()
 
-            if (transactionsAdapter.itemCount == 0) {
+            if (viewModel.delegate.itemsCount == 0) {
                 viewModel.delegate.onBottomReached()
             }
-
-            recyclerTransactions.visibility = if (viewModel.delegate.itemsCount == 0) View.GONE else View.VISIBLE
-            emptyListText.visibility = if (viewModel.delegate.itemsCount == 0) View.VISIBLE else View.GONE
         })
 
         viewModel.reloadChangeEvent.observe(viewLifecycleOwner, Observer { diff ->
             diff?.dispatchUpdatesTo(transactionsAdapter)
 
-            if (transactionsAdapter.itemCount == 0) {
+            if (viewModel.delegate.itemsCount == 0) {
                 viewModel.delegate.onBottomReached()
             }
-
-            recyclerTransactions.visibility = if (viewModel.delegate.itemsCount == 0) View.GONE else View.VISIBLE
-            emptyListText.visibility = if (viewModel.delegate.itemsCount == 0) View.VISIBLE else View.GONE
         })
 
         viewModel.addItemsLiveEvent.observe(viewLifecycleOwner, Observer {
@@ -99,29 +88,6 @@ class TransactionsFragment : Fragment(), TransactionsAdapter.Listener, FilterAda
             it?.forEach { index ->
                 transactionsAdapter.notifyItemChanged(index)
             }
-        })
-
-        setAppBarAnimation()
-    }
-
-    private fun setAppBarAnimation() {
-        toolbarTitle.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
-            override fun onGlobalLayout() {
-                toolbarTitle.pivotX = 0f
-                toolbarTitle.pivotY = toolbarTitle.height.toFloat()
-                toolbarTitle.viewTreeObserver.removeOnGlobalLayoutListener(this)
-            }
-        })
-
-        app_bar_layout.addOnOffsetChangedListener(AppBarLayout.OnOffsetChangedListener { appBarLayout, verticalOffset ->
-            val fraction = Math.abs(verticalOffset).toFloat() / appBarLayout.totalScrollRange
-            var alphaFract = 1f - fraction
-            if (alphaFract < 0.20) {
-                alphaFract = 0f
-            }
-            toolbarTitle.alpha = alphaFract
-            toolbarTitle.scaleX = (1f - fraction / 3)
-            toolbarTitle.scaleY = (1f - fraction / 3)
         })
     }
 
@@ -136,13 +102,17 @@ class TransactionsFragment : Fragment(), TransactionsAdapter.Listener, FilterAda
         viewModel.delegate.onTransactionItemClick(item)
     }
 
-    override fun onFilterItemClick(item: Coin?) {
+    override fun onFilterItemClick(item: Wallet?) {
         viewModel.delegate.onFilterSelect(item)
     }
 
 }
 
 class TransactionsAdapter(private var listener: Listener) : Adapter<ViewHolder>(), ViewHolderTransaction.ClickListener {
+
+    private val noTransactionsView = 0
+    private val transactionView = 1
+    private val logger = Logger.getLogger("TransactionsAdapter")
 
     interface Listener {
         fun onItemClick(item: TransactionViewItem)
@@ -151,20 +121,30 @@ class TransactionsAdapter(private var listener: Listener) : Adapter<ViewHolder>(
     lateinit var viewModel: TransactionsViewModel
 
     override fun getItemCount(): Int {
-        return viewModel.delegate.itemsCount
+        return if (viewModel.delegate.itemsCount == 0) 1 else viewModel.delegate.itemsCount
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder =
-            ViewHolderTransaction(LayoutInflater.from(parent.context).inflate(R.layout.view_holder_transaction, parent, false), this)
+    override fun getItemViewType(position: Int): Int {
+        return if (viewModel.delegate.itemsCount == 0) noTransactionsView else transactionView
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+        return when (viewType) {
+            noTransactionsView -> ViewHolderEmptyScreen(LayoutInflater.from(parent.context).inflate(R.layout.view_holder_empty_screen, parent, false))
+            else -> ViewHolderTransaction(LayoutInflater.from(parent.context).inflate(R.layout.view_holder_transaction, parent, false), this)
+        }
+    }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         if (position > itemCount - 9) {
             viewModel.delegate.onBottomReached()
         }
 
-        when (holder) {
-            is ViewHolderTransaction -> {
+        if (holder is ViewHolderTransaction) {
+            try {
                 holder.bind(viewModel.delegate.itemForIndex(position), showBottomShade = (position == itemCount - 1))
+            } catch (e: ArrayIndexOutOfBoundsException) {
+                logger.warning("throwing exception ArrayIndexOutOfBoundsException in TransactionsFragment")
             }
         }
     }
@@ -188,26 +168,30 @@ class ViewHolderTransaction(override val containerView: View, private val l: Cli
         txValueInFiat.text = transactionRecord.currencyValue?.let {
             App.numberFormatter.formatForTransactions(it, transactionRecord.incoming)
         }
+        txValueInFiat.setCompoundDrawablesWithIntrinsicBounds(0, 0, if (transactionRecord.lockInfo != null) R.drawable.ic_lock else 0, 0)
         txValueInCoin.text = App.numberFormatter.formatForTransactions(transactionRecord.coinValue)
+        directionIcon.setImageResource(if (transactionRecord.incoming) R.drawable.ic_incoming else R.drawable.ic_outgoing)
         txDate.text = transactionRecord.date?.let { DateHelper.getShortDateForTransaction(it) }
         val time = transactionRecord.date?.let { DateHelper.getOnlyTime(it) }
-        txStatusWithTimeView.bind(transactionRecord.status, time)
+        txStatusWithTimeView.bind(transactionRecord.status, transactionRecord.incoming, time)
         bottomShade.visibility = if (showBottomShade) View.VISIBLE else View.GONE
     }
 }
 
+class ViewHolderEmptyScreen(override val containerView: View) : ViewHolder(containerView), LayoutContainer
+
 class FilterAdapter(private var listener: Listener) : Adapter<ViewHolder>(), ViewHolderFilter.ClickListener {
 
     interface Listener {
-        fun onFilterItemClick(item: Coin?)
+        fun onFilterItemClick(item: Wallet?)
     }
 
     var filterChangeable = true
 
-    private var selectedFilterId: Coin? = null
-    private var filters: List<Coin?> = listOf()
+    private var selectedFilterId: Wallet? = null
+    private var filters: List<Wallet?> = listOf()
 
-    fun setFilters(filters: List<Coin?>) {
+    fun setFilters(filters: List<Wallet?>) {
         this.filters = filters
         selectedFilterId = null
         notifyDataSetChanged()
@@ -239,8 +223,8 @@ class ViewHolderFilter(override val containerView: View, private val l: ClickLis
         fun onClickItem(position: Int)
     }
 
-    fun bind(coin: Coin?, active: Boolean) {
-        filter_text.text = coin?.code ?: containerView.context.getString(R.string.Transactions_FilterAll)
+    fun bind(wallet: Wallet?, active: Boolean) {
+        filter_text.text = wallet?.coin?.code ?: containerView.context.getString(R.string.Transactions_FilterAll)
         filter_text.isActivated = active
         filter_text.setOnClickListener { l.onClickItem(adapterPosition) }
     }

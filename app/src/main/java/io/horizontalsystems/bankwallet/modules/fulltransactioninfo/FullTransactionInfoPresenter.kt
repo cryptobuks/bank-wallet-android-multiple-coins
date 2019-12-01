@@ -12,6 +12,9 @@ class FullTransactionInfoPresenter(val interactor: FullTransactionInfoInteractor
     //
     // State
     //
+    override val canShowTransactionInProviderSite: Boolean
+        get() = interactor.url(state.transactionHash) != null
+
     override val providerName: String?
         get() = state.transactionRecord?.providerName
 
@@ -27,8 +30,8 @@ class FullTransactionInfoPresenter(val interactor: FullTransactionInfoInteractor
     //
     override fun viewDidLoad() {
         interactor.didLoad()
-        interactor.updateProvider(state.coin)
-
+        interactor.updateProvider(state.wallet)
+        view?.setShareButtonVisibility(canShowTransactionInProviderSite)
         retryLoadInfo()
     }
 
@@ -50,12 +53,12 @@ class FullTransactionInfoPresenter(val interactor: FullTransactionInfoInteractor
     }
 
     override fun onTapProvider() {
-        view?.openProviderSettings(state.coin, state.transactionHash)
+        view?.openProviderSettings(state.wallet.coin, state.transactionHash)
     }
 
 
     override fun onTapChangeProvider() {
-        view?.openProviderSettings(state.coin, state.transactionHash)
+        view?.openProviderSettings(state.wallet.coin, state.transactionHash)
     }
 
     override fun onTapResource() {
@@ -79,9 +82,10 @@ class FullTransactionInfoPresenter(val interactor: FullTransactionInfoInteractor
     //
     override fun onProviderChange() {
         state.transactionRecord = null
-        view?.reload()
+        interactor.updateProvider(state.wallet)
 
-        interactor.updateProvider(state.coin)
+        view?.reload()
+        view?.setShareButtonVisibility(canShowTransactionInProviderSite)
 
         retryLoadInfo()
     }

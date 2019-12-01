@@ -3,50 +3,52 @@ package io.horizontalsystems.bankwallet.modules.restore
 import android.content.Context
 import android.content.Intent
 import io.horizontalsystems.bankwallet.core.App
-import io.horizontalsystems.bankwallet.core.IKeyStoreSafeExecute
+import io.horizontalsystems.bankwallet.core.IPredefinedAccountType
+import io.horizontalsystems.bankwallet.entities.AccountType
+import io.horizontalsystems.bankwallet.entities.SyncMode
 
 object RestoreModule {
 
-    interface IView {
-        fun showError(error: Int)
-        fun showConfirmationDialog()
+    interface View {
+        fun reload(items: List<IPredefinedAccountType>)
+        fun showError(ex: Exception)
     }
 
-    interface IViewDelegate {
-        fun restoreDidClick(words: List<String>)
-        fun didConfirm(words: List<String>)
+    interface ViewDelegate {
+        val items: List<IPredefinedAccountType>
+
+        fun viewDidLoad()
+        fun onSelect(accountType: IPredefinedAccountType)
+        fun onRestore(accountType: AccountType, syncMode: SyncMode? = null)
+        fun onClickClose()
     }
 
-    interface IInteractor {
-        fun restore(words: List<String>)
-        fun validate(words: List<String>)
+    interface Interactor {
+        fun restore(accountType: AccountType, syncMode: SyncMode?)
     }
 
-    interface IInteractorDelegate {
+    interface InteractorDelegate {
         fun didRestore()
-        fun didFailToRestore(exception: Exception)
-        fun didFailToValidate(exception: Exception)
-        fun didValidate()
+        fun didFailRestore(e: Exception)
     }
 
-    interface IRouter {
-        fun navigateToSetPin()
+    interface Router {
+        fun startRestoreWordsModule(wordsCount: Int, titleRes: Int)
+        fun startRestoreEosModule(titleRes: Int)
+        fun startMainModule()
+        fun close()
     }
 
     fun start(context: Context) {
-        val intent = Intent(context, RestoreWalletActivity::class.java)
-        context.startActivity(intent)
+        context.startActivity(Intent(context, RestoreActivity::class.java))
     }
 
-    fun init(view: RestoreViewModel, router: IRouter, keystoreSafeExecute: IKeyStoreSafeExecute) {
-        val interactor = RestoreInteractor(App.authManager, App.wordsManager, App.localStorage, keystoreSafeExecute)
-        val presenter = RestorePresenter(interactor, router)
+    fun init(view: RestoreViewModel, router: Router) {
+        val interactor = RestoreInteractor(App.accountCreator)
+        val presenter = RestorePresenter(router, interactor, App.predefinedAccountTypeManager)
 
         view.delegate = presenter
         presenter.view = view
         interactor.delegate = presenter
     }
-
-    class RestoreFailedException : Exception()
-
 }

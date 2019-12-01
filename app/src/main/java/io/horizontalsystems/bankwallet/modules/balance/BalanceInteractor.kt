@@ -1,99 +1,176 @@
 package io.horizontalsystems.bankwallet.modules.balance
 
-import android.os.Handler
-import io.horizontalsystems.bankwallet.core.IAdapterManager
-import io.horizontalsystems.bankwallet.core.ICurrencyManager
-import io.horizontalsystems.bankwallet.core.IRateStorage
-import io.horizontalsystems.bankwallet.modules.transactions.CoinCode
+import io.horizontalsystems.bankwallet.core.*
+import io.horizontalsystems.bankwallet.entities.Currency
+import io.horizontalsystems.bankwallet.entities.Wallet
+import io.horizontalsystems.xrateskit.entities.ChartInfo
+import io.horizontalsystems.xrateskit.entities.ChartType
+import io.horizontalsystems.xrateskit.entities.MarketInfo
 import io.reactivex.disposables.CompositeDisposable
 import io.reactivex.schedulers.Schedulers
+import java.math.BigDecimal
 
 class BalanceInteractor(
+        private val walletManager: IWalletManager,
         private val adapterManager: IAdapterManager,
-        private val rateStorage: IRateStorage,
         private val currencyManager: ICurrencyManager,
-        private val refreshTimeout: Double = 2.0
+        private val localStorage: ILocalStorage,
+        private val rateManager: IRateManager,
+        private val predefinedAccountTypeManager: IPredefinedAccountTypeManager
 ) : BalanceModule.IInteractor {
 
     var delegate: BalanceModule.IInteractorDelegate? = null
 
-    private var disposables: CompositeDisposable = CompositeDisposable()
-    private var adapterDisposables: CompositeDisposable = CompositeDisposable()
-    private var rateDisposables: CompositeDisposable = CompositeDisposable()
+    private var disposables = CompositeDisposable()
+    private var adapterDisposables = CompositeDisposable()
+    private var marketInfoDisposables = CompositeDisposable()
+    private var chartInfoDisposables = CompositeDisposable()
 
-    override fun initAdapters() {
-        onUpdateAdapters()
+    override val wallets: List<Wallet>
+        get() = walletManager.wallets
 
-        disposables.add(adapterManager.adaptersUpdatedSignal
-                .subscribeOn(Schedulers.io())
-                .observeOn(Schedulers.io())
-                .subscribe {
-                    onUpdateAdapters()
-                })
+    override val baseCurrency: Currency
+        get() = currencyManager.baseCurrency
 
-        onUpdateCurrency()
+    override val sortType: BalanceSortType
+        get() = localStorage.sortType
 
-        disposables.add(currencyManager.baseCurrencyUpdatedSignal
-                .subscribeOn(Schedulers.io())
-                .observeOn(Schedulers.io())
-                .subscribe {
-                    onUpdateCurrency()
-                })
+    override fun marketInfo(coinCode: String, currencyCode: String): MarketInfo? {
+        return rateManager.marketInfo(coinCode, currencyCode)
     }
 
-    override fun fetchRates(currencyCode: String, coinCodes: List<CoinCode>) {
-        rateDisposables.clear()
+    override fun chartInfo(coinCode: String, currencyCode: String): ChartInfo? {
+        return rateManager.chartInfo(coinCode, currencyCode, ChartType.DAILY)
+    }
 
-        coinCodes.forEach {
-            rateDisposables.add(rateStorage.latestRateObservable(it, currencyCode)
+    override fun balance(wallet: Wallet): BigDecimal? {
+        return adapterManager.getBalanceAdapterForWallet(wallet)?.balance
+    }
+
+    override fun balanceLocked(wallet: Wallet): BigDecimal? {
+        return adapterManager.getBalanceAdapterForWallet(wallet)?.balanceLocked
+    }
+
+    override fun state(wallet: Wallet): AdapterState? {
+        return adapterManager.getBalanceAdapterForWallet(wallet)?.state
+    }
+
+    override fun subscribeToWallets() {
+        walletManager.walletsUpdatedObservable
+                .subscribeOn(Schedulers.io())
+                .observeOn(Schedulers.io())
+                .subscribe { wallets ->
+                    onUpdateWallets(wallets)
+                }.let {
+                    disposables.add(it)
+                }
+
+        adapterManager.adaptersReadyObservable
+                .subscribeOn(Schedulers.io())
+                .observeOn(Schedulers.io())
+                .subscribe {
+                    onAdaptersReady()
+                }.let {
+                    disposables.add(it)
+                }
+    }
+
+    override fun subscribeToBaseCurrency() {
+        currencyManager.baseCurrencyUpdatedSignal
+                .subscribeOn(Schedulers.io())
+                .observeOn(Schedulers.io())
+                .subscribe { onUpdateCurrency() }
+                .let { disposables.add(it) }
+    }
+
+    override fun subscribeToAdapters(wallets: List<Wallet>) {
+        adapterDisposables.clear()
+
+        for (wallet in wallets) {
+            val adapter = adapterManager.getBalanceAdapterForWallet(wallet) ?: continue
+
+            adapter.balanceUpdatedFlowable
                     .subscribeOn(Schedulers.io())
                     .observeOn(Schedulers.io())
                     .subscribe {
-                        delegate?.didUpdateRate(it)
-                    })
+                        delegate?.didUpdateBalance(wallet, adapter.balance, adapter.balanceLocked)
+                    }.let {
+                        adapterDisposables.add(it)
+                    }
+
+            adapter.stateUpdatedFlowable
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(Schedulers.io())
+                    .subscribe {
+                        delegate?.didUpdateState(wallet, adapter.state)
+                    }.let {
+                        adapterDisposables.add(it)
+                    }
         }
+    }
+
+    override fun subscribeToMarketInfo(currencyCode: String) {
+        marketInfoDisposables.clear()
+
+        rateManager.marketInfoObservable(currencyCode)
+                .subscribeOn(Schedulers.io())
+                .observeOn(Schedulers.io())
+                .subscribe {
+                    delegate?.didUpdateMarketInfo(it)
+                }.let {
+                    marketInfoDisposables.add(it)
+                }
+    }
+
+    override fun subscribeToChartInfo(coinCodes: List<String>, currencyCode: String) {
+        chartInfoDisposables.clear()
+
+        coinCodes.forEach { coinCode ->
+            rateManager.chartInfoObservable(coinCode, currencyCode, ChartType.DAILY)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(Schedulers.io())
+                    .subscribe({
+                        delegate?.didUpdateChartInfo(it, coinCode)
+                    }, {
+                        delegate?.didFailChartInfo(coinCode)
+                    }).let {
+                        chartInfoDisposables.add(it)
+                    }
+        }
+    }
+
+    override fun refresh() {
+        adapterManager.refresh()
+        rateManager.refresh()
+
+        delegate?.didRefresh()
+    }
+
+    override fun predefinedAccountType(wallet: Wallet): IPredefinedAccountType? {
+        return predefinedAccountTypeManager.predefinedAccountType(wallet.account.type)
+    }
+
+    override fun saveSortType(sortType: BalanceSortType) {
+        localStorage.sortType = sortType
+    }
+
+    override fun clear() {
+        disposables.clear()
+        adapterDisposables.clear()
+        marketInfoDisposables.clear()
+        chartInfoDisposables.clear()
     }
 
     private fun onUpdateCurrency() {
         delegate?.didUpdateCurrency(currencyManager.baseCurrency)
     }
 
-    private fun onUpdateAdapters() {
-        adapterDisposables.clear()
-
-        val adapters = adapterManager.adapters
-
-        delegate?.didUpdateAdapters(adapters)
-
-        adapters.forEach { adapter ->
-            adapterDisposables.add(adapter.balanceUpdatedFlowable
-                    .subscribeOn(Schedulers.io())
-                    .observeOn(Schedulers.io())
-                    .subscribe {
-                        delegate?.didUpdateBalance(adapter.coin.code, adapter.balance)
-                    })
-
-            adapterDisposables.add(adapter.stateUpdatedFlowable
-                    .subscribeOn(Schedulers.io())
-                    .observeOn(Schedulers.io())
-                    .subscribe { state ->
-                        delegate?.didUpdateState(adapter.coin.code, adapter.state)
-                    })
-        }
+    private fun onUpdateWallets(wallets: List<Wallet>) {
+        delegate?.didUpdateWallets(wallets)
     }
 
-    override fun refresh() {
-        adapterManager.refreshAdapters()
-
-        Handler().postDelayed({
-            delegate?.didRefresh()
-        }, (refreshTimeout * 1000).toLong())
-    }
-
-    override fun clear() {
-        disposables.clear()
-        adapterDisposables.clear()
-        rateDisposables.clear()
+    private fun onAdaptersReady() {
+        delegate?.didPrepareAdapters()
     }
 
 }
